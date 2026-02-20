@@ -107,6 +107,29 @@ type buildEvent struct {
 	Stats      *buildStats `json:"stats,omitempty"`
 }
 
+func (e buildEvent) MarshalJSON() ([]byte, error) {
+	type alias buildEvent
+	payload := alias(e)
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+
+	// run_finished is the contract anchor event for machines; always include
+	// success/exit_code even when values are false/0 so consumers can rely on keys.
+	if e.Type != eventRunFinished {
+		return encoded, nil
+	}
+
+	var raw map[string]any
+	if err := json.Unmarshal(encoded, &raw); err != nil {
+		return nil, err
+	}
+	raw["success"] = e.Success
+	raw["exit_code"] = e.ExitCode
+	return json.Marshal(raw)
+}
+
 type timedItem struct {
 	name     string
 	duration time.Duration

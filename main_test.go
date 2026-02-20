@@ -1,8 +1,11 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"os/exec"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -249,5 +252,133 @@ func TestBuildRunFinishedEvent(t *testing.T) {
 	}
 	if !reflect.DeepEqual(event.TopErrors, errs) {
 		t.Fatalf("top_errors = %#v, want %#v", event.TopErrors, errs)
+	}
+}
+
+func TestBuildEventMarshalRunFinishedIncludesContractFields(t *testing.T) {
+	event := buildEvent{
+		Type:     eventRunFinished,
+		At:       time.Unix(10, 0),
+		Success:  false,
+		ExitCode: exitBuildFailure,
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if _, ok := payload["success"]; !ok {
+		t.Fatal("run_finished must include success")
+	}
+	if _, ok := payload["exit_code"]; !ok {
+		t.Fatal("run_finished must include exit_code")
+	}
+}
+
+func TestNDJSONContractRunFinishedIsLastAndUnique(t *testing.T) {
+	start := time.Unix(100, 0)
+	tracker := newEventTracker()
+	_ = tracker.processLine("CompileC SomeFile.swift", start)
+	finishEvents, _ := splitRunFinishedEvent(tracker.finish(nil, start.Add(2*time.Second)))
+
+	topErrors := []string{"sample error"}
+	stream := append([]buildEvent{}, finishEvents...)
+	stream = append(stream, buildEvent{
+		Type:       eventCompleted,
+		At:         start.Add(2100 * time.Millisecond),
+		Message:    "Ld",
+		TaskCount:  2,
+		DurationMS: 308,
+	})
+	stream = append(stream, buildEvent{
+		Type:  eventDiagSummary,
+		At:    start.Add(2200 * time.Millisecond),
+		Stats: &tracker.stats,
+	})
+	stream = append(stream, buildEvent{
+		Type:       eventActionDone,
+		At:         start.Add(2300 * time.Millisecond),
+		Message:    "Launch simulator",
+		DurationMS: 400,
+	})
+	stream = append(stream, buildRunFinishedEvent(start, start.Add(3*time.Second), tracker.stats, nil, topErrors))
+
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	for _, event := range stream {
+		if err := enc.Encode(event); err != nil {
+			t.Fatalf("encode failed: %v", err)
+		}
+	}
+
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) == 0 {
+		t.Fatal("expected ndjson lines")
+	}
+
+	runFinishedCount := 0
+	for i, line := range lines {
+		var payload map[string]any
+		if err := json.Unmarshal([]byte(line), &payload); err != nil {
+			t.Fatalf("line %d: invalid json: %v", i, err)
+		}
+		validateMachineContractEvent(t, i, payload)
+		typ, _ := payload["type"].(string)
+		if typ == string(eventRunFinished) {
+			runFinishedCount++
+			if i != len(lines)-1 {
+				t.Fatalf("run_finished must be last event, got at line %d of %d", i+1, len(lines))
+			}
+		}
+	}
+	if runFinishedCount != 1 {
+		t.Fatalf("run_finished count = %d, want 1", runFinishedCount)
+	}
+}
+
+func validateMachineContractEvent(t *testing.T, index int, payload map[string]any) {
+	t.Helper()
+	requireField := func(name string) {
+		t.Helper()
+		if _, ok := payload[name]; !ok {
+			t.Fatalf("line %d missing required %q for type %v", index+1, name, payload["type"])
+		}
+	}
+
+	requireField("type")
+	requireField("at")
+	typ, _ := payload["type"].(string)
+	switch typ {
+	case string(eventStepStarted):
+		requireField("step_name")
+		requireField("step_index")
+		requireField("step_total")
+	case string(eventStepDone):
+		requireField("step_name")
+		requireField("step_index")
+		requireField("step_total")
+		requireField("step_status")
+	case string(eventDiagnostic):
+		requireField("level")
+		requireField("message")
+	case string(eventCompleted):
+		requireField("message")
+		requireField("duration_ms")
+	case string(eventActionDone):
+		requireField("message")
+		requireField("duration_ms")
+	case string(eventActionFail):
+		requireField("level")
+		requireField("message")
+	case string(eventDiagSummary):
+		requireField("stats")
+	case string(eventRunFinished):
+		requireField("success")
+		requireField("exit_code")
+		requireField("duration_ms")
+		requireField("stats")
 	}
 }

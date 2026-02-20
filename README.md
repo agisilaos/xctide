@@ -80,6 +80,7 @@ Precedence: flags > env > auto-detect/defaults.
 
 In `--progress json`, events are returned in `events[]`, phase order in `phase_timeline`, completion rows in `completed[]`, execution rows in `executed[]`, and summary errors in `top_errors`.
 In `--progress ndjson`, each event is emitted as one JSON object per line in real time (including `completed_item` and `diagnostic_summary`), with `run_finished` emitted last.
+Formal contract: `docs/machine-contract.md`.
 
 ## Release
 

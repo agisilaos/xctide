@@ -157,15 +157,16 @@ type tickMsg time.Time
 const maxLines = 240
 
 var (
-	warningRe      = regexp.MustCompile(`(?i)\bwarning:`)
-	errorRe        = regexp.MustCompile(`(?i)\berror:`)
-	testRe         = regexp.MustCompile(`^Test Case\b|^Test Suite\b`)
-	failRe         = regexp.MustCompile(`(?i)\b(failed|failures?)\b`)
-	phaseRe        = regexp.MustCompile(`^(CompileC|SwiftCompile|SwiftCompileSources|Ld|LinkStoryboards|CompileStoryboard|ProcessInfoPlistFile|ProcessPCH|CopyBundleResources|CodeSign|Test Suite)\b`)
-	targetStartRe  = regexp.MustCompile(`^=== BUILD TARGET (.+) OF PROJECT`)
-	testCaseRe     = regexp.MustCompile(`^Test Case '-\[(.+)\]' (passed|failed) \((\d+\.?\d*) seconds\)`)
-	compileFileRe  = regexp.MustCompile(`(?i)\bCompile\w*\b.*\s(/[^\s]+\.swift)\b.*\((\d+\.?\d*)\s*s\)`)
-	errInterrupted = errors.New("interrupted")
+	warningRe       = regexp.MustCompile(`(?i)\bwarning:`)
+	errorRe         = regexp.MustCompile(`(?i)\berror:`)
+	testRe          = regexp.MustCompile(`^Test Case\b|^Test Suite\b`)
+	failRe          = regexp.MustCompile(`(?i)\b(failed|failures?)\b`)
+	phaseRe         = regexp.MustCompile(`^(CompileC|SwiftCompile|SwiftCompileSources|Ld|LinkStoryboards|CompileStoryboard|ProcessInfoPlistFile|ProcessPCH|CopyBundleResources|CodeSign|Test Suite)\b`)
+	targetStartRe   = regexp.MustCompile(`^=== BUILD TARGET (.+) OF PROJECT`)
+	testCaseRe      = regexp.MustCompile(`^Test Case '-\[(.+)\]' (passed|failed) \((\d+\.?\d*) seconds\)`)
+	compileFileRe   = regexp.MustCompile(`(?i)\bCompile\w*\b.*\s(/[^\s]+\.swift)\b.*\((\d+\.?\d*)\s*s\)`)
+	timingSummaryRe = regexp.MustCompile(`^([A-Za-z0-9_]+ \([0-9]+ tasks?\)) \| ([0-9]+(?:\.[0-9]+)?) seconds$`)
+	errInterrupted  = errors.New("interrupted")
 )
 
 type eventTracker struct {
@@ -245,6 +246,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "xctide: running xcodebuild %s\n", strings.Join(buildArgs(cfg), " "))
 	}
 
+	// Enable xcodebuild timing summary for richer completed reporting.
+	if mode != "raw" {
+		cfg.timingSummary = true
+	}
+
 	if mode == "json" {
 		result, err := runJSONBuild(cfg)
 		if err != nil {
@@ -282,8 +288,6 @@ func main() {
 		os.Exit(exitOK)
 		return
 	}
-
-	cfg.timingSummary = true
 
 	if noColor || os.Getenv("NO_COLOR") != "" || strings.EqualFold(os.Getenv("TERM"), "dumb") {
 		lipgloss.SetColorProfile(termenv.Ascii)
@@ -1837,6 +1841,8 @@ func runProgressPlainBuild(cfg buildConfig) error {
 	}()
 
 	tracker := newEventTracker()
+	timingRows := make([]timedItem, 0)
+	inTimingSummary := false
 	var targetRows []timedItem
 	currentTarget := ""
 	currentTargetStart := time.Time{}
@@ -1855,6 +1861,20 @@ func runProgressPlainBuild(cfg buildConfig) error {
 			currentTarget = strings.TrimSpace(match[1])
 			currentTargetStart = time.Now()
 		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "Build Timing Summary" {
+			inTimingSummary = true
+			continue
+		}
+		if inTimingSummary {
+			if strings.HasPrefix(trimmed, "** BUILD ") {
+				inTimingSummary = false
+				continue
+			}
+			if row, ok := parseTimingSummaryLine(trimmed); ok {
+				timingRows = append(timingRows, row)
+			}
+		}
 		if cfg.verbose {
 			fmt.Fprintln(os.Stdout, line)
 		}
@@ -1869,8 +1889,12 @@ func runProgressPlainBuild(cfg buildConfig) error {
 	if err == nil && cfg.runAfterBuild {
 		executedRows, err = runAppOnSimulator(cfg)
 	}
+	completedRows := targetRows
+	if len(timingRows) > 0 {
+		completedRows = timingRows
+	}
 	stats := tracker.stats
-	renderPlainBuildReport(os.Stdout, cfg, tracker.events, targetRows, executedRows, stats, time.Since(start), err)
+	renderPlainBuildReport(os.Stdout, cfg, tracker.events, completedRows, executedRows, stats, time.Since(start), err)
 	return err
 }
 
@@ -1929,6 +1953,21 @@ func formatDuration(durationMS int64) string {
 
 func formatDurationDur(value time.Duration) string {
 	return fmt.Sprintf("%.1fs", value.Seconds())
+}
+
+func parseTimingSummaryLine(line string) (timedItem, bool) {
+	match := timingSummaryRe.FindStringSubmatch(strings.TrimSpace(line))
+	if len(match) != 3 {
+		return timedItem{}, false
+	}
+	seconds, err := strconv.ParseFloat(match[2], 64)
+	if err != nil {
+		return timedItem{}, false
+	}
+	return timedItem{
+		name:     match[1],
+		duration: time.Duration(seconds * float64(time.Second)),
+	}, true
 }
 
 func destinationSummary(destination string) (kind string, name string, osVersion string) {

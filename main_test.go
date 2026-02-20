@@ -167,3 +167,20 @@ func TestNormalizeArgsRunMode(t *testing.T) {
 		t.Fatalf("unexpected args: %#v", args)
 	}
 }
+
+func TestParseTimingSummaryLine(t *testing.T) {
+	item, ok := parseTimingSummaryLine("Ld (2 tasks) | 0.308 seconds")
+	if !ok {
+		t.Fatal("expected timing summary line to parse")
+	}
+	if item.name != "Ld (2 tasks)" {
+		t.Fatalf("name = %q, want %q", item.name, "Ld (2 tasks)")
+	}
+	if item.duration <= 0 {
+		t.Fatalf("duration = %v, want > 0", item.duration)
+	}
+
+	if _, ok := parseTimingSummaryLine("not a summary line"); ok {
+		t.Fatal("expected invalid summary line to fail parsing")
+	}
+}

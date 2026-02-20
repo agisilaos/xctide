@@ -45,6 +45,10 @@ if grep -R -nE '(^|[[:space:]])(r[g]|j[q]|y[q]|f[d])([[:space:]]|$)' scripts >/d
 fi
 
 ./scripts/docs-check.sh
+
+echo "checking go module metadata"
+go mod tidy -diff
+
 go test ./...
 
 echo "release-check passed for $VERSION"

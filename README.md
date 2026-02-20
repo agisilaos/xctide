@@ -73,13 +73,18 @@ Precedence: flags > env > auto-detect/defaults.
 - `step_started`
 - `step_finished` (`done`, `failed`, `skipped`)
 - `diagnostic` (`warning`, `error`)
+- `completed_item`
+- `diagnostic_summary`
+- `action_finished` / `action_failed`
 - `run_finished`
 
-In `--progress json`, events are returned in `events[]` and phase order in `phase_timeline`.
-In `--progress ndjson`, each event is emitted as one JSON object per line in real time.
+In `--progress json`, events are returned in `events[]`, phase order in `phase_timeline`, completion rows in `completed[]`, execution rows in `executed[]`, and summary errors in `top_errors`.
+In `--progress ndjson`, each event is emitted as one JSON object per line in real time (including `completed_item` and `diagnostic_summary`).
 
 ## Release
 
 1. `make release-check VERSION=vX.Y.Z`
 2. `make release-dry-run VERSION=vX.Y.Z`
 3. `make release VERSION=vX.Y.Z`
+
+Release readiness checklist: `docs/release-readiness.md`

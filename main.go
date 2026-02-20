@@ -83,8 +83,10 @@ const (
 	eventStepStarted eventType = "step_started"
 	eventStepDone    eventType = "step_finished"
 	eventDiagnostic  eventType = "diagnostic"
+	eventCompleted   eventType = "completed_item"
 	eventActionDone  eventType = "action_finished"
 	eventActionFail  eventType = "action_failed"
+	eventDiagSummary eventType = "diagnostic_summary"
 	eventRunFinished eventType = "run_finished"
 )
 
@@ -98,6 +100,8 @@ type buildEvent struct {
 	DurationMS int64       `json:"duration_ms,omitempty"`
 	Level      string      `json:"level,omitempty"`
 	Message    string      `json:"message,omitempty"`
+	TaskCount  int         `json:"task_count,omitempty"`
+	TopErrors  []string    `json:"top_errors,omitempty"`
 	ExitCode   int         `json:"exit_code,omitempty"`
 	Success    bool        `json:"success,omitempty"`
 	Stats      *buildStats `json:"stats,omitempty"`
@@ -106,6 +110,12 @@ type buildEvent struct {
 type timedItem struct {
 	name     string
 	duration time.Duration
+}
+
+type completedItem struct {
+	Name       string `json:"name"`
+	TaskCount  int    `json:"task_count"`
+	DurationMS int64  `json:"duration_ms"`
 }
 
 type simDeviceInfo struct {
@@ -1494,25 +1504,59 @@ func renderClassicView(m model) string {
 }
 
 type jsonBuildResult struct {
-	Success       bool         `json:"success"`
-	ExitCode      int          `json:"exit_code"`
-	DurationMS    int64        `json:"duration_ms"`
-	Command       []string     `json:"command"`
-	Project       string       `json:"project,omitempty"`
-	Workspace     string       `json:"workspace,omitempty"`
-	Scheme        string       `json:"scheme"`
-	Configuration string       `json:"configuration"`
-	Destination   string       `json:"destination,omitempty"`
-	Stats         buildStats   `json:"stats"`
-	PhaseTimeline []string     `json:"phase_timeline,omitempty"`
-	Events        []buildEvent `json:"events,omitempty"`
-	Executed      []jsonAction `json:"executed,omitempty"`
-	Error         string       `json:"error,omitempty"`
+	Success       bool            `json:"success"`
+	ExitCode      int             `json:"exit_code"`
+	DurationMS    int64           `json:"duration_ms"`
+	Command       []string        `json:"command"`
+	Project       string          `json:"project,omitempty"`
+	Workspace     string          `json:"workspace,omitempty"`
+	Scheme        string          `json:"scheme"`
+	Configuration string          `json:"configuration"`
+	Destination   string          `json:"destination,omitempty"`
+	Stats         buildStats      `json:"stats"`
+	PhaseTimeline []string        `json:"phase_timeline,omitempty"`
+	Completed     []completedItem `json:"completed,omitempty"`
+	Events        []buildEvent    `json:"events,omitempty"`
+	Executed      []jsonAction    `json:"executed,omitempty"`
+	TopErrors     []string        `json:"top_errors,omitempty"`
+	Error         string          `json:"error,omitempty"`
 }
 
 type jsonAction struct {
 	Name       string `json:"name"`
 	DurationMS int64  `json:"duration_ms"`
+}
+
+func topErrorsFromEvents(events []buildEvent, limit int) []string {
+	if limit <= 0 {
+		return nil
+	}
+	seen := make(map[string]bool)
+	out := make([]string, 0, limit)
+	for _, event := range events {
+		if event.Type != eventDiagnostic || event.Level != "error" {
+			continue
+		}
+		msg := strings.TrimSpace(event.Message)
+		if msg == "" || seen[msg] {
+			continue
+		}
+		seen[msg] = true
+		out = append(out, msg)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func completedFromTimingRows(rows []completedItem) []completedItem {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]completedItem, 0, len(rows))
+	out = append(out, rows...)
+	return out
 }
 
 func buildArgs(cfg buildConfig) []string {
@@ -1657,8 +1701,24 @@ func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
 	}()
 
 	tracker := newEventTracker()
+	timingRows := make([]completedItem, 0)
+	inTimingSummary := false
 	for line := range lines {
 		_ = tracker.processLine(line, time.Now())
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "Build Timing Summary" {
+			inTimingSummary = true
+			continue
+		}
+		if inTimingSummary {
+			if strings.HasPrefix(trimmed, "** BUILD ") {
+				inTimingSummary = false
+				continue
+			}
+			if row, ok := parseTimingSummaryLine(trimmed); ok {
+				timingRows = append(timingRows, row)
+			}
+		}
 		if cfg.verbose {
 			fmt.Fprintln(os.Stderr, line)
 		}
@@ -1683,7 +1743,9 @@ func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
 		Destination:   cfg.destination,
 		Stats:         tracker.stats,
 		PhaseTimeline: phaseTimeline,
+		Completed:     completedFromTimingRows(timingRows),
 		Events:        append([]buildEvent(nil), tracker.events...),
+		TopErrors:     topErrorsFromEvents(tracker.events, 5),
 	}
 	if len(executedRows) > 0 {
 		result.Executed = make([]jsonAction, 0, len(executedRows))
@@ -1727,11 +1789,27 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 
 	encoder := json.NewEncoder(os.Stdout)
 	tracker := newEventTracker()
+	timingRows := make([]completedItem, 0)
+	inTimingSummary := false
 	for line := range lines {
 		events := tracker.processLine(line, time.Now())
 		for _, event := range events {
 			if err := encoder.Encode(event); err != nil {
 				return exitRuntimeFailure, err
+			}
+		}
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "Build Timing Summary" {
+			inTimingSummary = true
+			continue
+		}
+		if inTimingSummary {
+			if strings.HasPrefix(trimmed, "** BUILD ") {
+				inTimingSummary = false
+				continue
+			}
+			if row, ok := parseTimingSummaryLine(trimmed); ok {
+				timingRows = append(timingRows, row)
 			}
 		}
 		if cfg.verbose {
@@ -1744,6 +1822,27 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 		if err := encoder.Encode(event); err != nil {
 			return exitRuntimeFailure, err
 		}
+	}
+	for _, row := range timingRows {
+		event := buildEvent{
+			Type:       eventCompleted,
+			At:         time.Now(),
+			Message:    row.Name,
+			TaskCount:  row.TaskCount,
+			DurationMS: row.DurationMS,
+		}
+		if err := encoder.Encode(event); err != nil {
+			return exitRuntimeFailure, err
+		}
+	}
+	summary := buildEvent{
+		Type:      eventDiagSummary,
+		At:        time.Now(),
+		Stats:     &tracker.stats,
+		TopErrors: topErrorsFromEvents(tracker.events, 5),
+	}
+	if err := encoder.Encode(summary); err != nil {
+		return exitRuntimeFailure, err
 	}
 
 	if waitErr == nil && cfg.runAfterBuild {
@@ -1841,7 +1940,7 @@ func runProgressPlainBuild(cfg buildConfig) error {
 	}()
 
 	tracker := newEventTracker()
-	timingRows := make([]timedItem, 0)
+	timingRows := make([]completedItem, 0)
 	inTimingSummary := false
 	var targetRows []timedItem
 	currentTarget := ""
@@ -1889,7 +1988,7 @@ func runProgressPlainBuild(cfg buildConfig) error {
 	if err == nil && cfg.runAfterBuild {
 		executedRows, err = runAppOnSimulator(cfg)
 	}
-	completedRows := targetRows
+	completedRows := completedFromTargetRows(targetRows)
 	if len(timingRows) > 0 {
 		completedRows = timingRows
 	}
@@ -1898,7 +1997,7 @@ func runProgressPlainBuild(cfg buildConfig) error {
 	return err
 }
 
-func renderPlainBuildReport(w io.Writer, cfg buildConfig, events []buildEvent, targetRows []timedItem, executedRows []timedItem, stats buildStats, elapsed time.Duration, err error) {
+func renderPlainBuildReport(w io.Writer, cfg buildConfig, events []buildEvent, completedRows []completedItem, executedRows []timedItem, stats buildStats, elapsed time.Duration, err error) {
 	fmt.Fprintln(w, "• Run Destination")
 	destinationKind, destinationName, osVersion := destinationSummary(cfg.destination)
 	if destinationName != "" {
@@ -1912,9 +2011,13 @@ func renderPlainBuildReport(w io.Writer, cfg buildConfig, events []buildEvent, t
 	fmt.Fprintln(w, "")
 
 	fmt.Fprintln(w, "• Completed")
-	if len(targetRows) > 0 {
-		for _, row := range targetRows {
-			fmt.Fprintf(w, "  └ Build %-24s %s\n", row.name, formatDurationDur(row.duration))
+	if len(completedRows) > 0 {
+		for _, row := range completedRows {
+			if row.TaskCount > 0 {
+				fmt.Fprintf(w, "  └ Build %s (%d tasks) %s\n", row.Name, row.TaskCount, formatDuration(row.DurationMS))
+			} else {
+				fmt.Fprintf(w, "  └ Build %-24s %s\n", row.Name, formatDuration(row.DurationMS))
+			}
 		}
 	} else {
 		for _, event := range events {
@@ -1942,6 +2045,13 @@ func renderPlainBuildReport(w io.Writer, cfg buildConfig, events []buildEvent, t
 	if stats.warnings > 0 || stats.errors > 0 || stats.tests > 0 || stats.failures > 0 {
 		fmt.Fprintf(w, "  warnings:%d errors:%d tests:%d failures:%d\n", stats.warnings, stats.errors, stats.tests, stats.failures)
 	}
+	topErrors := topErrorsFromEvents(events, 3)
+	if len(topErrors) > 0 {
+		fmt.Fprintln(w, "  top errors:")
+		for _, message := range topErrors {
+			fmt.Fprintf(w, "  - %s\n", message)
+		}
+	}
 }
 
 func formatDuration(durationMS int64) string {
@@ -1955,18 +2065,45 @@ func formatDurationDur(value time.Duration) string {
 	return fmt.Sprintf("%.1fs", value.Seconds())
 }
 
-func parseTimingSummaryLine(line string) (timedItem, bool) {
+func completedFromTargetRows(rows []timedItem) []completedItem {
+	if len(rows) == 0 {
+		return nil
+	}
+	out := make([]completedItem, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, completedItem{
+			Name:       row.name,
+			TaskCount:  0,
+			DurationMS: row.duration.Milliseconds(),
+		})
+	}
+	return out
+}
+
+func parseTimingSummaryLine(line string) (completedItem, bool) {
 	match := timingSummaryRe.FindStringSubmatch(strings.TrimSpace(line))
 	if len(match) != 3 {
-		return timedItem{}, false
+		return completedItem{}, false
 	}
+	nameAndCount := match[1]
 	seconds, err := strconv.ParseFloat(match[2], 64)
 	if err != nil {
-		return timedItem{}, false
+		return completedItem{}, false
 	}
-	return timedItem{
-		name:     match[1],
-		duration: time.Duration(seconds * float64(time.Second)),
+	taskCount := 0
+	name := nameAndCount
+	if open := strings.LastIndex(nameAndCount, " ("); open > 0 && strings.HasSuffix(nameAndCount, ")") {
+		name = nameAndCount[:open]
+		suffix := strings.TrimSuffix(strings.TrimPrefix(nameAndCount[open:], " ("), ")")
+		suffix = strings.TrimSuffix(strings.TrimSuffix(suffix, " tasks"), " task")
+		if parsed, err := strconv.Atoi(strings.TrimSpace(suffix)); err == nil {
+			taskCount = parsed
+		}
+	}
+	return completedItem{
+		Name:       strings.TrimSpace(name),
+		TaskCount:  taskCount,
+		DurationMS: time.Duration(seconds * float64(time.Second)).Milliseconds(),
 	}, true
 }
 

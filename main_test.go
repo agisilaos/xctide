@@ -173,14 +173,33 @@ func TestParseTimingSummaryLine(t *testing.T) {
 	if !ok {
 		t.Fatal("expected timing summary line to parse")
 	}
-	if item.name != "Ld (2 tasks)" {
-		t.Fatalf("name = %q, want %q", item.name, "Ld (2 tasks)")
+	if item.Name != "Ld" {
+		t.Fatalf("name = %q, want %q", item.Name, "Ld")
 	}
-	if item.duration <= 0 {
-		t.Fatalf("duration = %v, want > 0", item.duration)
+	if item.TaskCount != 2 {
+		t.Fatalf("task_count = %d, want %d", item.TaskCount, 2)
+	}
+	if item.DurationMS <= 0 {
+		t.Fatalf("duration_ms = %d, want > 0", item.DurationMS)
 	}
 
 	if _, ok := parseTimingSummaryLine("not a summary line"); ok {
 		t.Fatal("expected invalid summary line to fail parsing")
+	}
+}
+
+func TestTopErrorsFromEvents(t *testing.T) {
+	events := []buildEvent{
+		{Type: eventDiagnostic, Level: "error", Message: "first"},
+		{Type: eventDiagnostic, Level: "error", Message: "first"},
+		{Type: eventDiagnostic, Level: "warning", Message: "ignore"},
+		{Type: eventDiagnostic, Level: "error", Message: "second"},
+	}
+	top := topErrorsFromEvents(events, 5)
+	if len(top) != 2 {
+		t.Fatalf("len(top) = %d, want 2", len(top))
+	}
+	if top[0] != "first" || top[1] != "second" {
+		t.Fatalf("unexpected top errors: %#v", top)
 	}
 }

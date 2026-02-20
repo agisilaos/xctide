@@ -1,0 +1,25 @@
+# Binaries
+xctide
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Go coverage and profiling
+*.out
+coverage.txt
+cpu.prof
+mem.prof
+
+# IDE/editor
+.DS_Store
+.vscode/
+.idea/
+
+# Build artifacts
+build/
+dist/

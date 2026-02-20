@@ -83,6 +83,8 @@ const (
 	eventStepStarted eventType = "step_started"
 	eventStepDone    eventType = "step_finished"
 	eventDiagnostic  eventType = "diagnostic"
+	eventActionDone  eventType = "action_finished"
+	eventActionFail  eventType = "action_failed"
 	eventRunFinished eventType = "run_finished"
 )
 
@@ -200,7 +202,7 @@ func main() {
 	flagSet.StringVar(&cfg.workspacePath, "workspace", "", "Path to .xcworkspace")
 	flagSet.StringVar(&cfg.configuration, "configuration", "", "Build configuration (default: Debug)")
 	flagSet.StringVar(&cfg.destination, "destination", "", "Destination (e.g. 'platform=iOS Simulator,name=iPhone 16')")
-	flagSet.StringVar(&cfg.progress, "progress", "auto", "Progress mode: auto|tui|plain|json")
+	flagSet.StringVar(&cfg.progress, "progress", "auto", "Progress mode: auto|tui|plain|json|ndjson")
 	flagSet.StringVar(&cfg.resultBundle, "result-bundle", "", "Path to write result bundle")
 	flagSet.BoolVar(&cfg.useQuiet, "quiet", false, "Pass -quiet to xcodebuild")
 	flagSet.BoolVar(&cfg.verbose, "verbose", false, "Print wrapper diagnostics to stderr")
@@ -254,6 +256,14 @@ func main() {
 			os.Exit(exitRuntimeFailure)
 		}
 		os.Exit(result.ExitCode)
+	}
+	if mode == "ndjson" {
+		exitCode, err := runNDJSONBuild(cfg)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "xctide:", err)
+			os.Exit(exitRuntimeFailure)
+		}
+		os.Exit(exitCode)
 	}
 
 	if mode == "raw" {
@@ -348,7 +358,7 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "      --project string")
 	_, _ = fmt.Fprintln(w, "      --configuration string")
 	_, _ = fmt.Fprintln(w, "      --destination string")
-	_, _ = fmt.Fprintln(w, "      --progress string  Progress mode: auto|tui|plain|json")
+	_, _ = fmt.Fprintln(w, "      --progress string  Progress mode: auto|tui|plain|json|ndjson")
 	_, _ = fmt.Fprintln(w, "      --result-bundle string")
 	_, _ = fmt.Fprintln(w, "      --plain           Disable TUI and stream raw output")
 	_, _ = fmt.Fprintln(w, "      --json            Emit JSON summary to stdout")
@@ -367,6 +377,7 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  xctide --plain -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress plain -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress json -- test")
+	_, _ = fmt.Fprintln(w, "  xctide --progress ndjson -- test")
 }
 
 func visitedFlags(flagSet *flag.FlagSet) map[string]bool {
@@ -575,8 +586,10 @@ func resolveProgressMode(cfg buildConfig, seen map[string]bool, hasTTY bool) (st
 			return "plain", nil
 		case "json":
 			return "json", nil
+		case "ndjson":
+			return "ndjson", nil
 		default:
-			return "", fmt.Errorf("invalid --progress value %q (expected auto|tui|plain|json)", cfg.progress)
+			return "", fmt.Errorf("invalid --progress value %q (expected auto|tui|plain|json|ndjson)", cfg.progress)
 		}
 	}
 	if cfg.jsonOutput {
@@ -1681,6 +1694,81 @@ func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
 		result.Error = waitErr.Error()
 	}
 	return result, nil
+}
+
+func runNDJSONBuild(cfg buildConfig) (int, error) {
+	args := buildArgs(cfg)
+	cmd := exec.Command("xcodebuild", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return exitRuntimeFailure, err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return exitRuntimeFailure, err
+	}
+	if err := cmd.Start(); err != nil {
+		return exitRuntimeFailure, err
+	}
+
+	lines := make(chan string, 256)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go streamLines(stdout, lines, &wg)
+	go streamLines(stderr, lines, &wg)
+	go func() {
+		wg.Wait()
+		close(lines)
+	}()
+
+	encoder := json.NewEncoder(os.Stdout)
+	tracker := newEventTracker()
+	for line := range lines {
+		events := tracker.processLine(line, time.Now())
+		for _, event := range events {
+			if err := encoder.Encode(event); err != nil {
+				return exitRuntimeFailure, err
+			}
+		}
+		if cfg.verbose {
+			fmt.Fprintln(os.Stderr, line)
+		}
+	}
+
+	waitErr := cmd.Wait()
+	for _, event := range tracker.finish(waitErr, time.Now()) {
+		if err := encoder.Encode(event); err != nil {
+			return exitRuntimeFailure, err
+		}
+	}
+
+	if waitErr == nil && cfg.runAfterBuild {
+		executedRows, runErr := runAppOnSimulator(cfg)
+		for _, row := range executedRows {
+			event := buildEvent{
+				Type:       eventActionDone,
+				At:         time.Now(),
+				Message:    row.name,
+				DurationMS: row.duration.Milliseconds(),
+			}
+			if err := encoder.Encode(event); err != nil {
+				return exitRuntimeFailure, err
+			}
+		}
+		if runErr != nil {
+			if err := encoder.Encode(buildEvent{
+				Type:    eventActionFail,
+				At:      time.Now(),
+				Level:   "error",
+				Message: runErr.Error(),
+			}); err != nil {
+				return exitRuntimeFailure, err
+			}
+		}
+		waitErr = runErr
+	}
+
+	return classifyBuildErr(waitErr), nil
 }
 
 func phaseTimelineFromEvents(events []buildEvent) []string {

@@ -125,4 +125,45 @@ func TestResolveProgressMode(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected conflict error for --progress with --plain")
 	}
+
+	cfg = buildConfig{progress: "ndjson"}
+	mode, err = resolveProgressMode(cfg, map[string]bool{"progress": true}, false)
+	if err != nil {
+		t.Fatalf("resolveProgressMode ndjson returned error: %v", err)
+	}
+	if mode != "ndjson" {
+		t.Fatalf("mode = %q, want ndjson", mode)
+	}
+}
+
+func TestHasBuildAction(t *testing.T) {
+	if hasBuildAction([]string{"-showBuildSettings"}) {
+		t.Fatal("expected false for non-action args")
+	}
+	if !hasBuildAction([]string{"clean", "build"}) {
+		t.Fatal("expected true for clean/build action")
+	}
+	if !hasBuildAction([]string{"test"}) {
+		t.Fatal("expected true for test action")
+	}
+}
+
+func TestDestinationUDID(t *testing.T) {
+	udid := destinationUDID("platform=iOS Simulator,id=ABC-123,name=iPhone 16 Pro")
+	if udid != "ABC-123" {
+		t.Fatalf("udid = %q, want %q", udid, "ABC-123")
+	}
+}
+
+func TestNormalizeArgsRunMode(t *testing.T) {
+	args, mode, err := normalizeArgs([]string{"run", "--scheme", "Subsmind"})
+	if err != nil {
+		t.Fatalf("normalizeArgs returned error: %v", err)
+	}
+	if mode != "run" {
+		t.Fatalf("mode = %q, want run", mode)
+	}
+	if len(args) != 2 || args[0] != "--scheme" || args[1] != "Subsmind" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
 }

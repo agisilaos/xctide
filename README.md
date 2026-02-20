@@ -18,6 +18,7 @@ xctide --scheme "Subsmind" --destination "platform=iOS Simulator,name=iPhone 16"
 xctide --plain -- -showBuildSettings
 xctide --progress plain -- test
 xctide --progress json -- test
+xctide --progress ndjson -- test
 xctide --json -- test
 ```
 
@@ -27,7 +28,7 @@ xctide --json -- test
 - `--workspace` / `--project` (auto-detected if omitted)
 - `--configuration` (default: `Debug`)
 - `--destination` (optional)
-- `--progress` (`auto|tui|plain|json`; default `auto`)
+- `--progress` (`auto|tui|plain|json|ndjson`; default `auto`)
 - `--result-bundle` (optional)
 - `--quiet` (passes `-quiet` to `xcodebuild`)
 - `--verbose` (wrapper diagnostics to stderr)
@@ -75,6 +76,7 @@ Precedence: flags > env > auto-detect/defaults.
 - `run_finished`
 
 In `--progress json`, events are returned in `events[]` and phase order in `phase_timeline`.
+In `--progress ndjson`, each event is emitted as one JSON object per line in real time.
 
 ## Release
 

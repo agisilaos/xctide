@@ -13,8 +13,11 @@ go build -o xctide
 ```bash
 xctide
 xctide build
+xctide run --destination "platform=iOS Simulator,id=<UDID>"
 xctide --scheme "Subsmind" --destination "platform=iOS Simulator,name=iPhone 16"
 xctide --plain -- -showBuildSettings
+xctide --progress plain -- test
+xctide --progress json -- test
 xctide --json -- test
 ```
 
@@ -24,6 +27,7 @@ xctide --json -- test
 - `--workspace` / `--project` (auto-detected if omitted)
 - `--configuration` (default: `Debug`)
 - `--destination` (optional)
+- `--progress` (`auto|tui|plain|json`; default `auto`)
 - `--result-bundle` (optional)
 - `--quiet` (passes `-quiet` to `xcodebuild`)
 - `--verbose` (wrapper diagnostics to stderr)
@@ -49,6 +53,7 @@ xctide --json -- test
 - `XCTIDE_PROJECT`
 - `XCTIDE_CONFIGURATION`
 - `XCTIDE_DESTINATION`
+- `XCTIDE_PROGRESS`
 - `NO_COLOR`
 
 Precedence: flags > env > auto-detect/defaults.
@@ -57,6 +62,19 @@ Precedence: flags > env > auto-detect/defaults.
 
 - Pass additional `xcodebuild` args after `--`.
 - When stdout/stderr is not a TTY, `xctide` automatically falls back to plain output.
+- `xctide run` performs build + simulator launch + install + app launch (requires simulator destination with `id=`).
+
+## Progress Event Model (v1)
+
+`xctide` emits one internal event stream used by all progress renderers (`tui`, `plain`, `json`):
+
+- `run_started`
+- `step_started`
+- `step_finished` (`done`, `failed`, `skipped`)
+- `diagnostic` (`warning`, `error`)
+- `run_finished`
+
+In `--progress json`, events are returned in `events[]` and phase order in `phase_timeline`.
 
 ## Release
 

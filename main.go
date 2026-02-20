@@ -42,6 +42,7 @@ type buildConfig struct {
 	scheme        string
 	configuration string
 	destination   string
+	progress      string
 	extraArgs     []string
 	resultBundle  string
 	useQuiet      bool
@@ -49,6 +50,7 @@ type buildConfig struct {
 	plain         bool
 	jsonOutput    bool
 	noInput       bool
+	runAfterBuild bool
 	timingSummary bool
 }
 
@@ -59,9 +61,54 @@ type buildStats struct {
 	failures int
 }
 
+func (s buildStats) MarshalJSON() ([]byte, error) {
+	type payload struct {
+		Warnings int `json:"warnings"`
+		Errors   int `json:"errors"`
+		Tests    int `json:"tests"`
+		Failures int `json:"failures"`
+	}
+	return json.Marshal(payload{
+		Warnings: s.warnings,
+		Errors:   s.errors,
+		Tests:    s.tests,
+		Failures: s.failures,
+	})
+}
+
+type eventType string
+
+const (
+	eventRunStarted  eventType = "run_started"
+	eventStepStarted eventType = "step_started"
+	eventStepDone    eventType = "step_finished"
+	eventDiagnostic  eventType = "diagnostic"
+	eventRunFinished eventType = "run_finished"
+)
+
+type buildEvent struct {
+	Type       eventType   `json:"type"`
+	At         time.Time   `json:"at"`
+	StepName   string      `json:"step_name,omitempty"`
+	StepIndex  int         `json:"step_index,omitempty"`
+	StepTotal  int         `json:"step_total,omitempty"`
+	StepStatus string      `json:"step_status,omitempty"`
+	DurationMS int64       `json:"duration_ms,omitempty"`
+	Level      string      `json:"level,omitempty"`
+	Message    string      `json:"message,omitempty"`
+	ExitCode   int         `json:"exit_code,omitempty"`
+	Success    bool        `json:"success,omitempty"`
+	Stats      *buildStats `json:"stats,omitempty"`
+}
+
 type timedItem struct {
 	name     string
 	duration time.Duration
+}
+
+type simDeviceInfo struct {
+	Name string
+	OS   string
 }
 
 type phase struct {
@@ -94,6 +141,7 @@ type model struct {
 	resultPath   string
 	showDetails  bool
 	session      *buildSession
+	tracker      *eventTracker
 }
 
 type lineMsg string
@@ -118,15 +166,28 @@ var (
 	errInterrupted = errors.New("interrupted")
 )
 
+type eventTracker struct {
+	stepNames      []string
+	currentStepIdx int
+	currentStart   time.Time
+	started        bool
+	finished       bool
+	events         []buildEvent
+	stats          buildStats
+}
+
 func main() {
 	cfg := buildConfig{}
 	var showVersion bool
 	var noColor bool
-	args, err := normalizeArgs(os.Args[1:])
+	args, commandMode, err := normalizeArgs(os.Args[1:])
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "xctide:", err)
 		printUsage(os.Stderr)
 		os.Exit(exitInvalidUsage)
+	}
+	if commandMode == "run" {
+		cfg.runAfterBuild = true
 	}
 
 	flagSet := flag.NewFlagSet("xctide", flag.ContinueOnError)
@@ -139,6 +200,7 @@ func main() {
 	flagSet.StringVar(&cfg.workspacePath, "workspace", "", "Path to .xcworkspace")
 	flagSet.StringVar(&cfg.configuration, "configuration", "", "Build configuration (default: Debug)")
 	flagSet.StringVar(&cfg.destination, "destination", "", "Destination (e.g. 'platform=iOS Simulator,name=iPhone 16')")
+	flagSet.StringVar(&cfg.progress, "progress", "auto", "Progress mode: auto|tui|plain|json")
 	flagSet.StringVar(&cfg.resultBundle, "result-bundle", "", "Path to write result bundle")
 	flagSet.BoolVar(&cfg.useQuiet, "quiet", false, "Pass -quiet to xcodebuild")
 	flagSet.BoolVar(&cfg.verbose, "verbose", false, "Print wrapper diagnostics to stderr")
@@ -154,9 +216,18 @@ func main() {
 		os.Exit(exitInvalidUsage)
 	}
 	cfg.extraArgs = flagSet.Args()
-	applyEnvDefaults(&cfg, visitedFlags(flagSet))
+	if cfg.runAfterBuild && !hasBuildAction(cfg.extraArgs) {
+		cfg.extraArgs = append(cfg.extraArgs, "build")
+	}
+	seen := visitedFlags(flagSet)
+	applyEnvDefaults(&cfg, seen)
 	if cfg.configuration == "" {
 		cfg.configuration = "Debug"
+	}
+	mode, err := resolveProgressMode(cfg, seen, isTerminal())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "xctide:", err)
+		os.Exit(exitInvalidUsage)
 	}
 
 	if showVersion {
@@ -172,7 +243,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "xctide: running xcodebuild %s\n", strings.Join(buildArgs(cfg), " "))
 	}
 
-	if cfg.jsonOutput {
+	if mode == "json" {
 		result, err := runJSONBuild(cfg)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "xctide:", err)
@@ -185,8 +256,16 @@ func main() {
 		os.Exit(result.ExitCode)
 	}
 
-	if !isTerminal() || cfg.plain {
+	if mode == "raw" {
 		if err := runPlainBuild(cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "xctide:", err)
+			os.Exit(classifyBuildErr(err))
+		}
+		os.Exit(exitOK)
+		return
+	}
+	if mode == "plain" {
+		if err := runProgressPlainBuild(cfg); err != nil {
 			fmt.Fprintln(os.Stderr, "xctide:", err)
 			os.Exit(classifyBuildErr(err))
 		}
@@ -220,6 +299,7 @@ func main() {
 		phases:     phases,
 		phaseLogs:  make(map[string][]string),
 		phaseStats: make(map[string]buildStats),
+		tracker:    newEventTracker(),
 	}
 
 	p := tea.NewProgram(m, tea.WithAltScreen())
@@ -236,18 +316,20 @@ func main() {
 	}
 }
 
-func normalizeArgs(raw []string) ([]string, error) {
+func normalizeArgs(raw []string) ([]string, string, error) {
 	if len(raw) == 0 {
-		return raw, nil
+		return raw, "build", nil
 	}
 	switch raw[0] {
 	case "help":
 		printUsage(os.Stdout)
 		os.Exit(exitOK)
 	case "build":
-		return raw[1:], nil
+		return raw[1:], "build", nil
+	case "run":
+		return raw[1:], "run", nil
 	}
-	return raw, nil
+	return raw, "build", nil
 }
 
 func printUsage(w io.Writer) {
@@ -256,6 +338,7 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "USAGE:")
 	_, _ = fmt.Fprintln(w, "  xctide [flags] [-- <xcodebuild args>]")
 	_, _ = fmt.Fprintln(w, "  xctide build [flags] [-- <xcodebuild args>]")
+	_, _ = fmt.Fprintln(w, "  xctide run [flags] [-- <xcodebuild args>]")
 	_, _ = fmt.Fprintln(w, "")
 	_, _ = fmt.Fprintln(w, "FLAGS:")
 	_, _ = fmt.Fprintln(w, "  -h, --help            Show this help")
@@ -265,6 +348,7 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "      --project string")
 	_, _ = fmt.Fprintln(w, "      --configuration string")
 	_, _ = fmt.Fprintln(w, "      --destination string")
+	_, _ = fmt.Fprintln(w, "      --progress string  Progress mode: auto|tui|plain|json")
 	_, _ = fmt.Fprintln(w, "      --result-bundle string")
 	_, _ = fmt.Fprintln(w, "      --plain           Disable TUI and stream raw output")
 	_, _ = fmt.Fprintln(w, "      --json            Emit JSON summary to stdout")
@@ -274,13 +358,15 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "      --no-color        Disable color output")
 	_, _ = fmt.Fprintln(w, "")
 	_, _ = fmt.Fprintln(w, "ENV:")
-	_, _ = fmt.Fprintln(w, "  XCTIDE_SCHEME, XCTIDE_WORKSPACE, XCTIDE_PROJECT, XCTIDE_CONFIGURATION, XCTIDE_DESTINATION")
+	_, _ = fmt.Fprintln(w, "  XCTIDE_SCHEME, XCTIDE_WORKSPACE, XCTIDE_PROJECT, XCTIDE_CONFIGURATION, XCTIDE_DESTINATION, XCTIDE_PROGRESS")
 	_, _ = fmt.Fprintln(w, "")
 	_, _ = fmt.Fprintln(w, "EXAMPLES:")
 	_, _ = fmt.Fprintln(w, "  xctide")
 	_, _ = fmt.Fprintln(w, "  xctide build --scheme Subsmind --destination \"platform=iOS Simulator,name=iPhone 16\"")
+	_, _ = fmt.Fprintln(w, "  xctide run --scheme Subsmind --destination \"platform=iOS Simulator,id=<UDID>\"")
 	_, _ = fmt.Fprintln(w, "  xctide --plain -- test")
-	_, _ = fmt.Fprintln(w, "  xctide --json -- test")
+	_, _ = fmt.Fprintln(w, "  xctide --progress plain -- test")
+	_, _ = fmt.Fprintln(w, "  xctide --progress json -- test")
 }
 
 func visitedFlags(flagSet *flag.FlagSet) map[string]bool {
@@ -307,6 +393,9 @@ func applyEnvDefaults(cfg *buildConfig, seen map[string]bool) {
 	if !seen["destination"] {
 		cfg.destination = firstNonEmpty(cfg.destination, os.Getenv("XCTIDE_DESTINATION"))
 	}
+	if !seen["progress"] {
+		cfg.progress = firstNonEmpty(cfg.progress, os.Getenv("XCTIDE_PROGRESS"))
+	}
 }
 
 func firstNonEmpty(values ...string) string {
@@ -316,6 +405,190 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func newEventTracker() *eventTracker {
+	phases := defaultPhases()
+	names := make([]string, 0, len(phases))
+	for _, p := range phases {
+		names = append(names, p.name)
+	}
+	return &eventTracker{
+		stepNames:      names,
+		currentStepIdx: 0,
+	}
+}
+
+func (t *eventTracker) runStarted(at time.Time) []buildEvent {
+	if t.started {
+		return nil
+	}
+	t.started = true
+	t.currentStart = at
+	out := []buildEvent{
+		{Type: eventRunStarted, At: at},
+		{
+			Type:      eventStepStarted,
+			At:        at,
+			StepName:  t.stepNames[t.currentStepIdx],
+			StepIndex: t.currentStepIdx + 1,
+			StepTotal: len(t.stepNames),
+		},
+	}
+	t.events = append(t.events, out...)
+	return out
+}
+
+func (t *eventTracker) processLine(line string, at time.Time) []buildEvent {
+	var out []buildEvent
+	if !t.started {
+		out = append(out, t.runStarted(at)...)
+	}
+	if warningRe.MatchString(line) {
+		t.stats.warnings++
+		event := buildEvent{Type: eventDiagnostic, At: at, Level: "warning", Message: line}
+		out = append(out, event)
+		t.events = append(t.events, event)
+	}
+	if errorRe.MatchString(line) {
+		t.stats.errors++
+		event := buildEvent{Type: eventDiagnostic, At: at, Level: "error", Message: line}
+		out = append(out, event)
+		t.events = append(t.events, event)
+	}
+	if testRe.MatchString(line) {
+		t.stats.tests++
+	}
+	if failRe.MatchString(line) {
+		t.stats.failures++
+	}
+
+	nextPhase := phaseNameForLine(line)
+	nextIdx := phaseIndexByName(t.stepNames, nextPhase)
+	if nextIdx <= t.currentStepIdx {
+		return out
+	}
+	for i := t.currentStepIdx; i < nextIdx; i++ {
+		finish := buildEvent{
+			Type:       eventStepDone,
+			At:         at,
+			StepName:   t.stepNames[i],
+			StepIndex:  i + 1,
+			StepTotal:  len(t.stepNames),
+			StepStatus: "done",
+			DurationMS: at.Sub(t.currentStart).Milliseconds(),
+		}
+		start := buildEvent{
+			Type:      eventStepStarted,
+			At:        at,
+			StepName:  t.stepNames[i+1],
+			StepIndex: i + 2,
+			StepTotal: len(t.stepNames),
+		}
+		out = append(out, finish, start)
+		t.events = append(t.events, finish, start)
+		t.currentStepIdx = i + 1
+		t.currentStart = at
+	}
+	return out
+}
+
+func (t *eventTracker) finish(err error, at time.Time) []buildEvent {
+	if t.finished {
+		return nil
+	}
+	if !t.started {
+		t.runStarted(at)
+	}
+	t.finished = true
+	var out []buildEvent
+
+	currentStatus := "done"
+	if err != nil {
+		currentStatus = "failed"
+	}
+	currentFinished := buildEvent{
+		Type:       eventStepDone,
+		At:         at,
+		StepName:   t.stepNames[t.currentStepIdx],
+		StepIndex:  t.currentStepIdx + 1,
+		StepTotal:  len(t.stepNames),
+		StepStatus: currentStatus,
+		DurationMS: at.Sub(t.currentStart).Milliseconds(),
+	}
+	out = append(out, currentFinished)
+	t.events = append(t.events, currentFinished)
+
+	for i := t.currentStepIdx + 1; i < len(t.stepNames); i++ {
+		skipped := buildEvent{
+			Type:       eventStepDone,
+			At:         at,
+			StepName:   t.stepNames[i],
+			StepIndex:  i + 1,
+			StepTotal:  len(t.stepNames),
+			StepStatus: "skipped",
+		}
+		out = append(out, skipped)
+		t.events = append(t.events, skipped)
+	}
+
+	stats := t.stats
+	done := buildEvent{
+		Type:       eventRunFinished,
+		At:         at,
+		ExitCode:   classifyBuildErr(err),
+		Success:    err == nil,
+		DurationMS: at.Sub(t.events[0].At).Milliseconds(),
+		Stats:      &stats,
+	}
+	out = append(out, done)
+	t.events = append(t.events, done)
+	return out
+}
+
+func phaseIndexByName(stepNames []string, name string) int {
+	for i, step := range stepNames {
+		if step == name {
+			return i
+		}
+	}
+	return -1
+}
+
+func resolveProgressMode(cfg buildConfig, seen map[string]bool, hasTTY bool) (string, error) {
+	if seen["progress"] && (seen["plain"] || seen["json"]) {
+		return "", errors.New("use either --progress or --plain/--json, not both")
+	}
+	if seen["progress"] {
+		switch cfg.progress {
+		case "auto":
+			if hasTTY {
+				return "tui", nil
+			}
+			return "plain", nil
+		case "tui":
+			if !hasTTY {
+				return "", errors.New("--progress=tui requires a TTY")
+			}
+			return "tui", nil
+		case "plain":
+			return "plain", nil
+		case "json":
+			return "json", nil
+		default:
+			return "", fmt.Errorf("invalid --progress value %q (expected auto|tui|plain|json)", cfg.progress)
+		}
+	}
+	if cfg.jsonOutput {
+		return "json", nil
+	}
+	if cfg.plain {
+		return "raw", nil
+	}
+	if hasTTY {
+		return "tui", nil
+	}
+	return "plain", nil
 }
 
 func (m model) Init() tea.Cmd {
@@ -333,10 +606,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case lineMsg:
 		line := string(msg)
 		m.lastLine = line
-		m.advancePhase(line)
+		if m.tracker != nil {
+			events := m.tracker.processLine(line, time.Now())
+			m.applyBuildEvents(events)
+		}
 		m.trackTarget(line)
-		m.stats = updateStats(line, m.stats)
-		m.updatePhaseStats(line)
 		m.captureTestCase(line)
 		m.captureCompileFile(line)
 		m.lines = append(m.lines, line)
@@ -348,7 +622,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case doneMsg:
 		m.finished = true
 		m.err = msg.err
-		m.completeCurrentPhase()
+		if m.tracker != nil {
+			events := m.tracker.finish(msg.err, time.Now())
+			m.applyBuildEvents(events)
+		} else {
+			m.completeCurrentPhase()
+		}
 		m.finishTarget()
 		return m, nil
 	case tea.KeyMsg:
@@ -480,7 +759,7 @@ func (m *model) advancePhase(line string) {
 		return
 	}
 	idx := phaseIndex(m.phases, phaseName)
-	if idx == -1 || idx == m.currentPhase {
+	if idx == -1 || idx == m.currentPhase || idx < m.currentPhase {
 		return
 	}
 	m.completeCurrentPhase()
@@ -499,6 +778,59 @@ func (m *model) completeCurrentPhase() {
 	}
 	m.phases[m.currentPhase].status = "done"
 	m.phases[m.currentPhase].endedAt = time.Now()
+}
+
+func (m *model) markRemainingPhasesSkipped() {
+	for i := range m.phases {
+		if m.phases[i].status == "pending" {
+			m.phases[i].status = "skipped"
+		}
+	}
+}
+
+func (m *model) applyBuildEvents(events []buildEvent) {
+	for _, event := range events {
+		switch event.Type {
+		case eventStepStarted:
+			idx := phaseIndex(m.phases, event.StepName)
+			if idx < 0 {
+				continue
+			}
+			m.currentPhase = idx
+			m.phase = event.StepName
+			m.phases[idx].status = "active"
+			m.phases[idx].startedAt = event.At
+		case eventStepDone:
+			idx := phaseIndex(m.phases, event.StepName)
+			if idx < 0 {
+				continue
+			}
+			m.currentPhase = idx
+			switch event.StepStatus {
+			case "done":
+				m.phases[idx].status = "done"
+			case "failed":
+				m.phases[idx].status = "failed"
+			case "skipped":
+				m.phases[idx].status = "skipped"
+			}
+			if m.phases[idx].startedAt.IsZero() {
+				m.phases[idx].startedAt = event.At
+			}
+			m.phases[idx].endedAt = event.At
+		case eventDiagnostic:
+			switch event.Level {
+			case "warning":
+				m.stats.warnings++
+			case "error":
+				m.stats.errors++
+			}
+		case eventRunFinished:
+			if event.Stats != nil {
+				m.stats = *event.Stats
+			}
+		}
+	}
 }
 
 func phaseNameForLine(line string) string {
@@ -950,8 +1282,41 @@ func renderClassicView(m model) string {
 		projectValue = m.config.workspacePath
 	}
 
+	completed := 0
+	skipped := 0
+	for _, phase := range m.phases {
+		if phase.status == "done" || phase.status == "skipped" || phase.status == "failed" {
+			completed++
+		}
+		if phase.status == "skipped" {
+			skipped++
+		}
+	}
+	totalPhases := len(m.phases)
+	progressPercent := 0
+	if totalPhases > 0 {
+		progressPercent = (completed * 100) / totalPhases
+	}
+	currentStep := m.phases[m.currentPhase].name
+	if m.finished {
+		currentStep = "Completed"
+	}
+	if m.targetName != "" {
+		currentStep = fmt.Sprintf("%s (%s)", currentStep, m.targetName)
+	}
+
+	progressWidth := clamp(10, m.width-38, 40)
+	filled := (progressWidth * progressPercent) / 100
+	if filled < 0 {
+		filled = 0
+	}
+	if filled > progressWidth {
+		filled = progressWidth
+	}
+	progressBar := strings.Repeat("█", filled) + strings.Repeat("░", progressWidth-filled)
+
 	var b strings.Builder
-	b.WriteString(headerStyle.Render("xctide $ xctide build"))
+	b.WriteString(headerStyle.Render("xctide build"))
 	b.WriteString(" ")
 	b.WriteString(labelStyle.Render(filepath.Base(projectValue)))
 	b.WriteString(" ")
@@ -960,7 +1325,7 @@ func renderClassicView(m model) string {
 	b.WriteString(labelStyle.Render(m.config.configuration))
 	b.WriteString("\n\n")
 
-	b.WriteString(labelStyle.Render("• Run Destination"))
+	b.WriteString(labelStyle.Render("• Build Context"))
 	b.WriteString("\n")
 	b.WriteString("  ")
 	b.WriteString(accentStyle.Render("Project"))
@@ -985,18 +1350,63 @@ func renderClassicView(m model) string {
 	}
 	b.WriteString("\n\n")
 
-	b.WriteString(labelStyle.Render("• Completed"))
+	b.WriteString(labelStyle.Render("• Progress"))
+	b.WriteString("\n")
+	b.WriteString("  ")
+	b.WriteString(labelStyle.Render(progressBar))
+	b.WriteString(" ")
+	b.WriteString(labelStyle.Render(fmt.Sprintf("%3d%%", progressPercent)))
+	b.WriteString(dimStyle.Render(fmt.Sprintf(" (%d/%d)", completed, totalPhases)))
+	if skipped > 0 {
+		b.WriteString(dimStyle.Render(fmt.Sprintf(" skipped:%d", skipped)))
+	}
+	b.WriteString("\n")
+	if !m.finished {
+		b.WriteString("  ")
+		b.WriteString(accentStyle.Render("Active"))
+		b.WriteString(dimStyle.Render("  "))
+		b.WriteString(labelStyle.Render(currentStep))
+	} else {
+		b.WriteString("  ")
+		b.WriteString(accentStyle.Render("State"))
+		b.WriteString(dimStyle.Render("   "))
+		b.WriteString(labelStyle.Render("Completed"))
+	}
+	b.WriteString("\n\n")
+
+	b.WriteString(labelStyle.Render("• Steps"))
 	b.WriteString("\n")
 	for _, phase := range m.phases {
+		statusSymbol := "·"
+		statusStyle := dimStyle
+		switch phase.status {
+		case "active":
+			statusSymbol = "▶"
+			statusStyle = accentStyle
+		case "done":
+			statusSymbol = "✓"
+			statusStyle = labelStyle
+		case "failed":
+			statusSymbol = "✗"
+			statusStyle = errorStyle
+		case "skipped":
+			statusSymbol = "○"
+			statusStyle = dimStyle
+		}
 		duration := formatPhaseDuration(phase)
-		if duration == "" {
+		if phase.status == "skipped" {
+			duration = "skipped"
+		} else if phase.status == "failed" {
+			if duration == "" {
+				duration = "failed"
+			}
+		} else if duration == "" {
 			duration = "-"
 		}
 		b.WriteString("  ")
-		b.WriteString(labelStyle.Render("├─ "))
-		b.WriteString(accentStyle.Render("Build"))
+		b.WriteString(statusStyle.Render(statusSymbol))
 		b.WriteString(labelStyle.Render(" "))
-		b.WriteString(labelStyle.Render(phase.name))
+		b.WriteString(statusStyle.Render(phase.name))
 		b.WriteString(dimStyle.Render(" "))
 		b.WriteString(dimStyle.Render(duration))
 		b.WriteString("\n")
@@ -1058,6 +1468,8 @@ func renderClassicView(m model) string {
 		b.WriteString(style.Render(fmt.Sprintf("• %s %s", status, elapsed.String())))
 	} else {
 		b.WriteString(labelStyle.Render(fmt.Sprintf("• Building %s", elapsed.String())))
+		b.WriteString(" ")
+		b.WriteString(dimStyle.Render(fmt.Sprintf("warnings:%d errors:%d tests:%d failures:%d", m.stats.warnings, m.stats.errors, m.stats.tests, m.stats.failures)))
 	}
 	b.WriteString("\n\n")
 
@@ -1065,17 +1477,25 @@ func renderClassicView(m model) string {
 }
 
 type jsonBuildResult struct {
-	Success       bool       `json:"success"`
-	ExitCode      int        `json:"exit_code"`
-	DurationMS    int64      `json:"duration_ms"`
-	Command       []string   `json:"command"`
-	Project       string     `json:"project,omitempty"`
-	Workspace     string     `json:"workspace,omitempty"`
-	Scheme        string     `json:"scheme"`
-	Configuration string     `json:"configuration"`
-	Destination   string     `json:"destination,omitempty"`
-	Stats         buildStats `json:"stats"`
-	Error         string     `json:"error,omitempty"`
+	Success       bool         `json:"success"`
+	ExitCode      int          `json:"exit_code"`
+	DurationMS    int64        `json:"duration_ms"`
+	Command       []string     `json:"command"`
+	Project       string       `json:"project,omitempty"`
+	Workspace     string       `json:"workspace,omitempty"`
+	Scheme        string       `json:"scheme"`
+	Configuration string       `json:"configuration"`
+	Destination   string       `json:"destination,omitempty"`
+	Stats         buildStats   `json:"stats"`
+	PhaseTimeline []string     `json:"phase_timeline,omitempty"`
+	Events        []buildEvent `json:"events,omitempty"`
+	Executed      []jsonAction `json:"executed,omitempty"`
+	Error         string       `json:"error,omitempty"`
+}
+
+type jsonAction struct {
+	Name       string `json:"name"`
+	DurationMS int64  `json:"duration_ms"`
 }
 
 func buildArgs(cfg buildConfig) []string {
@@ -1108,6 +1528,16 @@ func buildArgs(cfg buildConfig) []string {
 func hasArg(args []string, value string) bool {
 	for _, arg := range args {
 		if arg == value {
+			return true
+		}
+	}
+	return false
+}
+
+func hasBuildAction(args []string) bool {
+	for _, arg := range args {
+		switch arg {
+		case "build", "clean", "test", "archive", "analyze":
 			return true
 		}
 	}
@@ -1185,36 +1615,391 @@ func classifyBuildErr(err error) int {
 
 func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
 	start := time.Now()
-	cmd := exec.Command("xcodebuild", buildArgs(cfg)...)
-	output, err := cmd.CombinedOutput()
+	args := buildArgs(cfg)
+	cmd := exec.Command("xcodebuild", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return jsonBuildResult{}, err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return jsonBuildResult{}, err
+	}
+	if err := cmd.Start(); err != nil {
+		return jsonBuildResult{}, err
+	}
+
+	lines := make(chan string, 256)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go streamLines(stdout, lines, &wg)
+	go streamLines(stderr, lines, &wg)
+	go func() {
+		wg.Wait()
+		close(lines)
+	}()
+
+	tracker := newEventTracker()
+	for line := range lines {
+		_ = tracker.processLine(line, time.Now())
+		if cfg.verbose {
+			fmt.Fprintln(os.Stderr, line)
+		}
+	}
+	waitErr := cmd.Wait()
+	_ = tracker.finish(waitErr, time.Now())
+	var executedRows []timedItem
+	if waitErr == nil && cfg.runAfterBuild {
+		executedRows, waitErr = runAppOnSimulator(cfg)
+	}
+
+	phaseTimeline := phaseTimelineFromEvents(tracker.events)
 	result := jsonBuildResult{
-		Success:       err == nil,
-		ExitCode:      classifyBuildErr(err),
+		Success:       waitErr == nil,
+		ExitCode:      classifyBuildErr(waitErr),
 		DurationMS:    time.Since(start).Milliseconds(),
-		Command:       append([]string{"xcodebuild"}, buildArgs(cfg)...),
+		Command:       append([]string{"xcodebuild"}, args...),
 		Project:       cfg.projectPath,
 		Workspace:     cfg.workspacePath,
 		Scheme:        cfg.scheme,
 		Configuration: cfg.configuration,
 		Destination:   cfg.destination,
-		Stats:         parseStats(string(output)),
+		Stats:         tracker.stats,
+		PhaseTimeline: phaseTimeline,
+		Events:        append([]buildEvent(nil), tracker.events...),
 	}
-	if cfg.verbose && len(output) > 0 {
-		_, _ = os.Stderr.Write(output)
+	if len(executedRows) > 0 {
+		result.Executed = make([]jsonAction, 0, len(executedRows))
+		for _, row := range executedRows {
+			result.Executed = append(result.Executed, jsonAction{
+				Name:       row.name,
+				DurationMS: row.duration.Milliseconds(),
+			})
+		}
 	}
-	if err != nil {
-		result.Error = err.Error()
+	if waitErr != nil {
+		result.Error = waitErr.Error()
 	}
 	return result, nil
 }
 
-func parseStats(raw string) buildStats {
-	stats := buildStats{}
-	scanner := bufio.NewScanner(strings.NewReader(raw))
-	for scanner.Scan() {
-		stats = updateStats(scanner.Text(), stats)
+func phaseTimelineFromEvents(events []buildEvent) []string {
+	seen := make(map[string]bool)
+	var timeline []string
+	for _, phase := range defaultPhases() {
+		for _, event := range events {
+			if event.Type == eventStepDone && event.StepStatus == "done" && event.StepName == phase.name {
+				seen[phase.name] = true
+				break
+			}
+		}
+		if seen[phase.name] {
+			timeline = append(timeline, phase.name)
+		}
 	}
-	return stats
+	return timeline
+}
+
+func printPlainEvent(event buildEvent) {
+	switch event.Type {
+	case eventStepStarted:
+		fmt.Fprintf(os.Stdout, "step %d/%d: %s (started)\n", event.StepIndex, event.StepTotal, event.StepName)
+	case eventStepDone:
+		switch event.StepStatus {
+		case "done", "failed":
+			fmt.Fprintf(
+				os.Stdout,
+				"step %d/%d: %s (%s %s)\n",
+				event.StepIndex,
+				event.StepTotal,
+				event.StepName,
+				event.StepStatus,
+				(time.Duration(event.DurationMS) * time.Millisecond).Truncate(time.Second),
+			)
+		case "skipped":
+			fmt.Fprintf(os.Stdout, "step %d/%d: %s (skipped)\n", event.StepIndex, event.StepTotal, event.StepName)
+		}
+	}
+}
+
+func runProgressPlainBuild(cfg buildConfig) error {
+	start := time.Now()
+	args := buildArgs(cfg)
+	cmd := exec.Command("xcodebuild", args...)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	lines := make(chan string, 256)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go streamLines(stdout, lines, &wg)
+	go streamLines(stderr, lines, &wg)
+	go func() {
+		wg.Wait()
+		close(lines)
+	}()
+
+	tracker := newEventTracker()
+	var targetRows []timedItem
+	currentTarget := ""
+	currentTargetStart := time.Time{}
+	commandLabel := "build"
+	if cfg.runAfterBuild {
+		commandLabel = "run"
+	}
+	fmt.Fprintf(os.Stdout, "xctide $ xctide %s %s %s %s\n\n", commandLabel, filepath.Base(firstNonEmpty(cfg.workspacePath, cfg.projectPath)), cfg.scheme, cfg.configuration)
+
+	for line := range lines {
+		_ = tracker.processLine(line, time.Now())
+		if match := targetStartRe.FindStringSubmatch(line); len(match) > 1 {
+			if currentTarget != "" && !currentTargetStart.IsZero() {
+				targetRows = append(targetRows, timedItem{name: currentTarget, duration: time.Since(currentTargetStart)})
+			}
+			currentTarget = strings.TrimSpace(match[1])
+			currentTargetStart = time.Now()
+		}
+		if cfg.verbose {
+			fmt.Fprintln(os.Stdout, line)
+		}
+	}
+
+	err = cmd.Wait()
+	if currentTarget != "" && !currentTargetStart.IsZero() {
+		targetRows = append(targetRows, timedItem{name: currentTarget, duration: time.Since(currentTargetStart)})
+	}
+	_ = tracker.finish(err, time.Now())
+	var executedRows []timedItem
+	if err == nil && cfg.runAfterBuild {
+		executedRows, err = runAppOnSimulator(cfg)
+	}
+	stats := tracker.stats
+	renderPlainBuildReport(os.Stdout, cfg, tracker.events, targetRows, executedRows, stats, time.Since(start), err)
+	return err
+}
+
+func renderPlainBuildReport(w io.Writer, cfg buildConfig, events []buildEvent, targetRows []timedItem, executedRows []timedItem, stats buildStats, elapsed time.Duration, err error) {
+	fmt.Fprintln(w, "• Run Destination")
+	destinationKind, destinationName, osVersion := destinationSummary(cfg.destination)
+	if destinationName != "" {
+		fmt.Fprintf(w, "  %s %s\n", destinationKind, destinationName)
+	} else if cfg.destination != "" {
+		fmt.Fprintf(w, "  %s\n", cfg.destination)
+	}
+	if osVersion != "" {
+		fmt.Fprintf(w, "  iOS %s\n", osVersion)
+	}
+	fmt.Fprintln(w, "")
+
+	fmt.Fprintln(w, "• Completed")
+	if len(targetRows) > 0 {
+		for _, row := range targetRows {
+			fmt.Fprintf(w, "  └ Build %-24s %s\n", row.name, formatDurationDur(row.duration))
+		}
+	} else {
+		for _, event := range events {
+			if event.Type != eventStepDone || event.StepStatus != "done" {
+				continue
+			}
+			fmt.Fprintf(w, "  └ Build %-8s %s\n", event.StepName, formatDuration(event.DurationMS))
+		}
+	}
+	fmt.Fprintln(w, "")
+
+	if len(executedRows) > 0 {
+		fmt.Fprintln(w, "• Executed")
+		for _, row := range executedRows {
+			fmt.Fprintf(w, "  └ %-24s %s\n", row.name, formatDurationDur(row.duration))
+		}
+		fmt.Fprintln(w, "")
+	}
+
+	if err == nil {
+		fmt.Fprintf(w, "• Build Succeeded %s\n", elapsed.Truncate(time.Second))
+	} else {
+		fmt.Fprintf(w, "• Build Failed %s\n", elapsed.Truncate(time.Second))
+	}
+	if stats.warnings > 0 || stats.errors > 0 || stats.tests > 0 || stats.failures > 0 {
+		fmt.Fprintf(w, "  warnings:%d errors:%d tests:%d failures:%d\n", stats.warnings, stats.errors, stats.tests, stats.failures)
+	}
+}
+
+func formatDuration(durationMS int64) string {
+	if durationMS <= 0 {
+		return "0.0s"
+	}
+	return fmt.Sprintf("%.1fs", float64(durationMS)/1000.0)
+}
+
+func formatDurationDur(value time.Duration) string {
+	return fmt.Sprintf("%.1fs", value.Seconds())
+}
+
+func destinationSummary(destination string) (kind string, name string, osVersion string) {
+	kind = "Destination"
+	if strings.Contains(destination, "iOS Simulator") {
+		kind = "Simulator"
+	}
+	if strings.Contains(destination, "platform=iOS") && !strings.Contains(destination, "Simulator") {
+		kind = "Device"
+	}
+
+	for _, part := range strings.Split(destination, ",") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "name=") {
+			name = strings.TrimPrefix(part, "name=")
+		}
+		if strings.HasPrefix(part, "id=") {
+			udid := strings.TrimPrefix(part, "id=")
+			info := simulatorInfoForUDID(udid)
+			if info.Name != "" {
+				name = info.Name
+			}
+			if info.OS != "" {
+				osVersion = info.OS
+			}
+		}
+	}
+	return kind, name, osVersion
+}
+
+func simulatorInfoForUDID(udid string) simDeviceInfo {
+	if udid == "" {
+		return simDeviceInfo{}
+	}
+	cmd := exec.Command("xcrun", "simctl", "list", "devices", "--json")
+	out, err := cmd.Output()
+	if err != nil {
+		return simDeviceInfo{}
+	}
+	var payload struct {
+		Devices map[string][]struct {
+			UDID string `json:"udid"`
+			Name string `json:"name"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal(out, &payload); err != nil {
+		return simDeviceInfo{}
+	}
+	for runtime, devices := range payload.Devices {
+		for _, device := range devices {
+			if strings.EqualFold(device.UDID, udid) {
+				os := strings.TrimPrefix(runtime, "com.apple.CoreSimulator.SimRuntime.iOS-")
+				os = strings.ReplaceAll(os, "-", ".")
+				return simDeviceInfo{Name: device.Name, OS: os}
+			}
+		}
+	}
+	return simDeviceInfo{}
+}
+
+func destinationUDID(destination string) string {
+	for _, part := range strings.Split(destination, ",") {
+		part = strings.TrimSpace(part)
+		if strings.HasPrefix(part, "id=") {
+			return strings.TrimPrefix(part, "id=")
+		}
+	}
+	return ""
+}
+
+func runAppOnSimulator(cfg buildConfig) ([]timedItem, error) {
+	udid := destinationUDID(cfg.destination)
+	if udid == "" {
+		return nil, errors.New("run mode requires simulator destination with id=<UDID>")
+	}
+	info := simulatorInfoForUDID(udid)
+	if info.Name == "" {
+		return nil, fmt.Errorf("destination id %s is not a simulator device", udid)
+	}
+	settings, err := readBuildSettings(cfg)
+	if err != nil {
+		return nil, err
+	}
+	appPath := filepath.Join(settings.TargetBuildDir, settings.WrapperName)
+	rows := make([]timedItem, 0, 3)
+	duration, err := runTimedCommand("xcrun", "simctl", "boot", udid)
+	if err == nil {
+		rows = append(rows, timedItem{name: "Launch simulator", duration: duration})
+	}
+	if _, err := runTimedCommand("xcrun", "simctl", "bootstatus", udid, "-b"); err != nil {
+		return rows, err
+	}
+	duration, err = runTimedCommand("xcrun", "simctl", "install", udid, appPath)
+	if err != nil {
+		return rows, err
+	}
+	rows = append(rows, timedItem{name: "Install iOS app", duration: duration})
+	duration, err = runTimedCommand("xcrun", "simctl", "launch", udid, settings.BundleID)
+	if err != nil {
+		return rows, err
+	}
+	rows = append(rows, timedItem{name: "Launch iOS app", duration: duration})
+	return rows, nil
+}
+
+func runTimedCommand(name string, args ...string) (time.Duration, error) {
+	start := time.Now()
+	cmd := exec.Command(name, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		if bytes.Contains(out, []byte("Unable to boot device in current state: Booted")) {
+			return time.Since(start), nil
+		}
+		return time.Since(start), fmt.Errorf("%s %s failed: %w", name, strings.Join(args, " "), err)
+	}
+	return time.Since(start), nil
+}
+
+type buildSettings struct {
+	TargetBuildDir string
+	WrapperName    string
+	BundleID       string
+}
+
+func readBuildSettings(cfg buildConfig) (buildSettings, error) {
+	args := buildArgs(cfg)
+	filtered := make([]string, 0, len(args)+1)
+	for _, arg := range args {
+		switch arg {
+		case "build", "clean", "test", "archive", "analyze":
+			continue
+		default:
+			filtered = append(filtered, arg)
+		}
+	}
+	filtered = append(filtered, "-showBuildSettings")
+	cmd := exec.Command("xcodebuild", filtered...)
+	out, err := cmd.Output()
+	if err != nil {
+		return buildSettings{}, err
+	}
+	settings := buildSettings{}
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "TARGET_BUILD_DIR = ") {
+			settings.TargetBuildDir = strings.TrimPrefix(line, "TARGET_BUILD_DIR = ")
+		}
+		if strings.HasPrefix(line, "WRAPPER_NAME = ") {
+			settings.WrapperName = strings.TrimPrefix(line, "WRAPPER_NAME = ")
+		}
+		if strings.HasPrefix(line, "PRODUCT_BUNDLE_IDENTIFIER = ") {
+			settings.BundleID = strings.TrimPrefix(line, "PRODUCT_BUNDLE_IDENTIFIER = ")
+		}
+	}
+	if settings.TargetBuildDir == "" || settings.WrapperName == "" || settings.BundleID == "" {
+		return buildSettings{}, errors.New("could not determine app settings from build settings")
+	}
+	return settings, nil
 }
 
 func runPlainBuild(cfg buildConfig) error {

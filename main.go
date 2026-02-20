@@ -1763,6 +1763,7 @@ func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
 }
 
 func runNDJSONBuild(cfg buildConfig) (int, error) {
+	streamStart := time.Now()
 	args := buildArgs(cfg)
 	cmd := exec.Command("xcodebuild", args...)
 	stdout, err := cmd.StdoutPipe()
@@ -1818,7 +1819,8 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 	}
 
 	waitErr := cmd.Wait()
-	for _, event := range tracker.finish(waitErr, time.Now()) {
+	finishEvents, provisionalRunFinished := splitRunFinishedEvent(tracker.finish(waitErr, time.Now()))
+	for _, event := range finishEvents {
 		if err := encoder.Encode(event); err != nil {
 			return exitRuntimeFailure, err
 		}
@@ -1870,8 +1872,46 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 		}
 		waitErr = runErr
 	}
-
+	final := buildRunFinishedEvent(streamStart, time.Now(), tracker.stats, waitErr, topErrorsFromEvents(tracker.events, 5))
+	if provisionalRunFinished != nil && waitErr == nil && !cfg.runAfterBuild {
+		// Preserve tracker-calculated completion timestamp semantics when no post-build actions run.
+		final.At = provisionalRunFinished.At
+		final.DurationMS = provisionalRunFinished.DurationMS
+	}
+	if err := encoder.Encode(final); err != nil {
+		return exitRuntimeFailure, err
+	}
 	return classifyBuildErr(waitErr), nil
+}
+
+func splitRunFinishedEvent(events []buildEvent) ([]buildEvent, *buildEvent) {
+	rest := make([]buildEvent, 0, len(events))
+	var runFinished *buildEvent
+	for _, event := range events {
+		if event.Type == eventRunFinished {
+			copyEvent := event
+			runFinished = &copyEvent
+			continue
+		}
+		rest = append(rest, event)
+	}
+	return rest, runFinished
+}
+
+func buildRunFinishedEvent(start time.Time, at time.Time, stats buildStats, err error, topErrors []string) buildEvent {
+	statsCopy := stats
+	event := buildEvent{
+		Type:       eventRunFinished,
+		At:         at,
+		DurationMS: at.Sub(start).Milliseconds(),
+		ExitCode:   classifyBuildErr(err),
+		Success:    err == nil,
+		Stats:      &statsCopy,
+	}
+	if len(topErrors) > 0 {
+		event.TopErrors = append([]string(nil), topErrors...)
+	}
+	return event
 }
 
 func phaseTimelineFromEvents(events []buildEvent) []string {

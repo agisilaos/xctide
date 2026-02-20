@@ -2,6 +2,7 @@ package main
 
 import (
 	"os/exec"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -201,5 +202,52 @@ func TestTopErrorsFromEvents(t *testing.T) {
 	}
 	if top[0] != "first" || top[1] != "second" {
 		t.Fatalf("unexpected top errors: %#v", top)
+	}
+}
+
+func TestSplitRunFinishedEvent(t *testing.T) {
+	input := []buildEvent{
+		{Type: eventStepStarted, StepName: "Prepare"},
+		{Type: eventRunFinished, Success: true},
+		{Type: eventCompleted, Message: "Ld"},
+	}
+	rest, final := splitRunFinishedEvent(input)
+	if final == nil {
+		t.Fatal("expected run_finished event")
+	}
+	if final.Type != eventRunFinished {
+		t.Fatalf("final type = %s, want %s", final.Type, eventRunFinished)
+	}
+	if len(rest) != 2 {
+		t.Fatalf("len(rest) = %d, want 2", len(rest))
+	}
+	if rest[0].Type != eventStepStarted || rest[1].Type != eventCompleted {
+		t.Fatalf("unexpected rest events: %#v", rest)
+	}
+}
+
+func TestBuildRunFinishedEvent(t *testing.T) {
+	start := time.Unix(100, 0)
+	end := start.Add(2500 * time.Millisecond)
+	errs := []string{"first", "second"}
+	event := buildRunFinishedEvent(start, end, buildStats{warnings: 1, errors: 2}, nil, errs)
+
+	if event.Type != eventRunFinished {
+		t.Fatalf("event type = %s, want %s", event.Type, eventRunFinished)
+	}
+	if !event.Success {
+		t.Fatal("expected success=true")
+	}
+	if event.ExitCode != exitOK {
+		t.Fatalf("exit code = %d, want %d", event.ExitCode, exitOK)
+	}
+	if event.DurationMS != 2500 {
+		t.Fatalf("duration_ms = %d, want 2500", event.DurationMS)
+	}
+	if event.Stats == nil || event.Stats.warnings != 1 || event.Stats.errors != 2 {
+		t.Fatalf("unexpected stats payload: %#v", event.Stats)
+	}
+	if !reflect.DeepEqual(event.TopErrors, errs) {
+		t.Fatalf("top_errors = %#v, want %#v", event.TopErrors, errs)
 	}
 }

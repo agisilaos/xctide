@@ -438,7 +438,9 @@ func main() {
 	}
 	if mode == "plain" {
 		if err := runProgressPlainBuild(cfg); err != nil {
-			fmt.Fprintln(os.Stderr, "xctide:", err)
+			if shouldPrintWrapperError("plain", err) {
+				fmt.Fprintln(os.Stderr, "xctide:", err)
+			}
 			os.Exit(classifyBuildErr(err))
 		}
 		os.Exit(exitOK)
@@ -753,6 +755,18 @@ func runPassthrough(name string, args []string) int {
 		return exitRuntimeFailure
 	}
 	return exitOK
+}
+
+func shouldPrintWrapperError(mode string, err error) bool {
+	if err == nil {
+		return false
+	}
+	// In progress-plain mode, the failure summary is already rendered in stdout.
+	// Avoid printing an extra stderr line that can interleave mid-report.
+	if mode == "plain" {
+		return false
+	}
+	return true
 }
 
 func buildPlanResult(cfg buildConfig, mode string) planResult {

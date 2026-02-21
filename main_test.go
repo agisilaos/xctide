@@ -156,6 +156,23 @@ func TestHasBuildAction(t *testing.T) {
 	}
 }
 
+func TestShouldPrintWrapperError(t *testing.T) {
+	cmd := exec.Command("sh", "-c", "exit 1")
+	err := cmd.Run()
+	if err == nil {
+		t.Fatal("expected non-zero command error")
+	}
+	if shouldPrintWrapperError("plain", err) {
+		t.Fatal("expected plain mode to suppress wrapper error line")
+	}
+	if !shouldPrintWrapperError("raw", err) {
+		t.Fatal("expected raw mode to print wrapper error line")
+	}
+	if shouldPrintWrapperError("raw", nil) {
+		t.Fatal("expected nil error to suppress wrapper error line")
+	}
+}
+
 func TestChooseOneIndexNoInputProvidesExample(t *testing.T) {
 	_, err := chooseOneIndex("scheme", []string{"Subsmind", "Subsmind - dev"}, true)
 	if err == nil {

@@ -42,6 +42,9 @@ type buildConfig struct {
 	scheme        string
 	configuration string
 	destination   string
+	platform      string
+	simulatorOnly bool
+	deviceOnly    bool
 	progress      string
 	extraArgs     []string
 	resultBundle  string
@@ -287,6 +290,9 @@ func main() {
 	flagSet.StringVar(&cfg.workspacePath, "workspace", "", "Path to .xcworkspace")
 	flagSet.StringVar(&cfg.configuration, "configuration", "", "Build configuration (default: Debug)")
 	flagSet.StringVar(&cfg.destination, "destination", "", "Destination (e.g. 'platform=iOS Simulator,name=iPhone 16')")
+	flagSet.StringVar(&cfg.platform, "platform", "", "Destination filter for `destinations` (e.g. 'iOS Simulator' or 'iOS')")
+	flagSet.BoolVar(&cfg.simulatorOnly, "simulator-only", false, "Only simulator destinations (for `destinations`)")
+	flagSet.BoolVar(&cfg.deviceOnly, "device-only", false, "Only physical device destinations (for `destinations`)")
 	flagSet.StringVar(&cfg.progress, "progress", "auto", "Progress mode: auto|tui|plain|json|ndjson")
 	flagSet.StringVar(&cfg.resultBundle, "result-bundle", "", "Path to write result bundle")
 	flagSet.BoolVar(&cfg.useQuiet, "quiet", false, "Pass -quiet to xcodebuild")
@@ -305,6 +311,10 @@ func main() {
 	cfg.extraArgs = flagSet.Args()
 	if cfg.runAfterBuild && !hasBuildAction(cfg.extraArgs) {
 		cfg.extraArgs = append(cfg.extraArgs, "build")
+	}
+	if cfg.simulatorOnly && cfg.deviceOnly {
+		fmt.Fprintln(os.Stderr, "xctide: --simulator-only and --device-only cannot be used together")
+		os.Exit(exitInvalidUsage)
 	}
 	seen := visitedFlags(flagSet)
 	applyEnvDefaults(&cfg, seen)
@@ -522,6 +532,9 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "      --project string")
 	_, _ = fmt.Fprintln(w, "      --configuration string")
 	_, _ = fmt.Fprintln(w, "      --destination string")
+	_, _ = fmt.Fprintln(w, "      --platform string  Destination filter for `destinations`")
+	_, _ = fmt.Fprintln(w, "      --simulator-only   Filter to simulator destinations (`destinations`)")
+	_, _ = fmt.Fprintln(w, "      --device-only      Filter to physical device destinations (`destinations`)")
 	_, _ = fmt.Fprintln(w, "      --progress string  Progress mode: auto|tui|plain|json|ndjson")
 	_, _ = fmt.Fprintln(w, "      --result-bundle string")
 	_, _ = fmt.Fprintln(w, "      --plain           Disable TUI and stream raw output")
@@ -565,10 +578,31 @@ func listDestinations(cfg buildConfig) ([]destinationOption, error) {
 		return nil, fmt.Errorf("xcodebuild -showdestinations failed: %w", err)
 	}
 	options := parseShowDestinationsOutput(out)
+	options = filterDestinations(options, cfg.platform, cfg.simulatorOnly, cfg.deviceOnly)
 	if len(options) == 0 {
 		return nil, errors.New("no destinations found")
 	}
 	return options, nil
+}
+
+func filterDestinations(options []destinationOption, platform string, simulatorOnly bool, deviceOnly bool) []destinationOption {
+	normalizedPlatform := strings.TrimSpace(strings.ToLower(platform))
+	out := make([]destinationOption, 0, len(options))
+	for _, option := range options {
+		lowerPlatform := strings.ToLower(strings.TrimSpace(option.Platform))
+		if normalizedPlatform != "" && lowerPlatform != normalizedPlatform {
+			continue
+		}
+		isSimulator := strings.Contains(lowerPlatform, "simulator")
+		if simulatorOnly && !isSimulator {
+			continue
+		}
+		if deviceOnly && isSimulator {
+			continue
+		}
+		out = append(out, option)
+	}
+	return out
 }
 
 func parseShowDestinationsOutput(data []byte) []destinationOption {

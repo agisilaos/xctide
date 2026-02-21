@@ -33,6 +33,8 @@ xctide --json -- test
 - `--workspace` / `--project` (auto-detected if omitted)
 - `--configuration` (default: `Debug`)
 - `--destination` (optional)
+- `--platform` (destination filter for `xctide destinations`)
+- `--simulator-only` / `--device-only` (destination filters for `xctide destinations`)
 - `--progress` (`auto|tui|plain|json|ndjson`; default `auto`)
 - `--result-bundle` (optional)
 - `--quiet` (passes `-quiet` to `xcodebuild`)

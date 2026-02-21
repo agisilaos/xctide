@@ -12,6 +12,8 @@ This command avoids trial-and-error by showing valid destination specs you can c
 ```bash
 xctide destinations --scheme Subsmind
 xctide destinations --scheme Subsmind --json
+xctide destinations --scheme Subsmind --simulator-only
+xctide destinations --scheme Subsmind --platform iOS
 xctide destinations --workspace App.xcworkspace --scheme App
 ```
 
@@ -33,4 +35,8 @@ JSON mode (`--json`):
 
 - Uses `xcodebuild -showdestinations` under the hood.
 - Respects normal config resolution (`--workspace`/`--project`/`--scheme`, env vars, autodetect).
+- Optional filters:
+  - `--platform` exact platform match (case-insensitive), e.g. `iOS Simulator`
+  - `--simulator-only`
+  - `--device-only`
 - If multiple schemes exist and `--no-input` is set, provide `--scheme` explicitly.

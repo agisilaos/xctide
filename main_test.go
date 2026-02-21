@@ -410,6 +410,34 @@ func TestParseShowDestinationsOutput(t *testing.T) {
 	}
 }
 
+func TestFilterDestinations(t *testing.T) {
+	options := []destinationOption{
+		{Platform: "iOS Simulator", Name: "iPhone 17 Pro"},
+		{Platform: "iOS", Name: "Agis iPhone"},
+		{Platform: "tvOS Simulator", Name: "Apple TV"},
+	}
+
+	simOnly := filterDestinations(options, "", true, false)
+	if len(simOnly) != 2 {
+		t.Fatalf("len(simOnly) = %d, want 2", len(simOnly))
+	}
+	for _, option := range simOnly {
+		if !strings.Contains(strings.ToLower(option.Platform), "simulator") {
+			t.Fatalf("unexpected non-simulator platform in simOnly: %q", option.Platform)
+		}
+	}
+
+	deviceOnly := filterDestinations(options, "", false, true)
+	if len(deviceOnly) != 1 || deviceOnly[0].Platform != "iOS" {
+		t.Fatalf("unexpected deviceOnly result: %#v", deviceOnly)
+	}
+
+	platformOnly := filterDestinations(options, "iOS Simulator", false, false)
+	if len(platformOnly) != 1 || platformOnly[0].Name != "iPhone 17 Pro" {
+		t.Fatalf("unexpected platformOnly result: %#v", platformOnly)
+	}
+}
+
 func TestPassthroughSpecXcrun(t *testing.T) {
 	name, args, err := passthroughSpec("xcrun", []string{"simctl", "list", "devices"})
 	if err != nil {

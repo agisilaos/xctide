@@ -1,0 +1,22 @@
+name: machine-contract
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  contract:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Verify machine output contract tests
+        run: |
+          go test ./... -run 'TestContractGoldenJSON|TestContractGoldenNDJSON|TestNDJSONContractRunFinishedIsLastAndUnique|TestBuildEventMarshalRunFinishedIncludesContractFields'

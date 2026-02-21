@@ -1,0 +1,9 @@
+{"type":"run_started","at":"2026-02-21T10:00:00Z"}
+{"type":"step_started","at":"2026-02-21T10:00:00Z","step_name":"Prepare","step_index":1,"step_total":5}
+{"type":"step_finished","at":"2026-02-21T10:00:00.5Z","step_name":"Prepare","step_index":1,"step_total":5,"step_status":"done","duration_ms":500}
+{"type":"step_started","at":"2026-02-21T10:00:00.5Z","step_name":"Compile","step_index":2,"step_total":5}
+{"type":"diagnostic","at":"2026-02-21T10:00:01.5Z","level":"warning","message":"warning: sample warning"}
+{"type":"completed_item","at":"2026-02-21T10:00:02Z","duration_ms":308,"message":"Ld","task_count":2}
+{"type":"diagnostic_summary","at":"2026-02-21T10:00:02.5Z","stats":{"warnings":1,"errors":0,"tests":2,"failures":0}}
+{"type":"action_finished","at":"2026-02-21T10:00:02.8Z","duration_ms":400,"message":"Launch simulator"}
+{"at":"2026-02-21T10:00:03Z","duration_ms":3000,"exit_code":0,"stats":{"errors":0,"failures":0,"tests":2,"warnings":1},"success":true,"type":"run_finished"}

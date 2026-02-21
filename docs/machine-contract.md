@@ -69,3 +69,21 @@ Top-level summary includes:
 - `top_errors[]`
 
 Consumers should treat `events[]` as the canonical timeline and use summary arrays as convenience projections.
+
+## Golden Fixtures
+
+Contract fixtures are stored in:
+
+- `testdata/contracts/sample.json.golden`
+- `testdata/contracts/sample.ndjson.golden`
+
+Tests compare generated payloads against these fixtures:
+
+- `TestContractGoldenJSON`
+- `TestContractGoldenNDJSON`
+
+To intentionally refresh fixtures after a contract change:
+
+```bash
+UPDATE_GOLDEN=1 go test ./... -run 'TestContractGoldenJSON|TestContractGoldenNDJSON'
+```

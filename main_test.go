@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -563,5 +565,88 @@ func validateMachineContractEvent(t *testing.T, index int, payload map[string]an
 		requireField("exit_code")
 		requireField("duration_ms")
 		requireField("stats")
+	}
+}
+
+func TestContractGoldenJSON(t *testing.T) {
+	result := sampleContractJSONResult()
+	got, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("marshal failed: %v", err)
+	}
+	assertGoldenBytes(t, filepath.Join("testdata", "contracts", "sample.json.golden"), got)
+}
+
+func TestContractGoldenNDJSON(t *testing.T) {
+	events := sampleContractEvents()
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	for _, event := range events {
+		if err := enc.Encode(event); err != nil {
+			t.Fatalf("encode failed: %v", err)
+		}
+	}
+	assertGoldenBytes(t, filepath.Join("testdata", "contracts", "sample.ndjson.golden"), []byte(strings.TrimSpace(buf.String())))
+}
+
+func sampleContractJSONResult() jsonBuildResult {
+	events := sampleContractEvents()
+	stats := buildStats{warnings: 1, errors: 0, tests: 2, failures: 0}
+	return jsonBuildResult{
+		Success:       true,
+		ExitCode:      exitOK,
+		DurationMS:    3000,
+		Command:       []string{"xcodebuild", "-scheme", "Subsmind", "build"},
+		Workspace:     "Subsmind.xcworkspace",
+		Scheme:        "Subsmind",
+		Configuration: "Debug",
+		Destination:   "platform=iOS Simulator,id=ABC",
+		Stats:         stats,
+		PhaseTimeline: []string{"Prepare", "Compile"},
+		Completed: []completedItem{
+			{Name: "Ld", TaskCount: 2, DurationMS: 308},
+		},
+		Events: events,
+		Executed: []jsonAction{
+			{Name: "Launch simulator", DurationMS: 400},
+		},
+	}
+}
+
+func sampleContractEvents() []buildEvent {
+	t0 := time.Date(2026, 2, 21, 10, 0, 0, 0, time.UTC)
+	stats := buildStats{warnings: 1, errors: 0, tests: 2, failures: 0}
+	statsCopy := stats
+	return []buildEvent{
+		{Type: eventRunStarted, At: t0},
+		{Type: eventStepStarted, At: t0, StepName: "Prepare", StepIndex: 1, StepTotal: 5},
+		{Type: eventStepDone, At: t0.Add(500 * time.Millisecond), StepName: "Prepare", StepIndex: 1, StepTotal: 5, StepStatus: "done", DurationMS: 500},
+		{Type: eventStepStarted, At: t0.Add(500 * time.Millisecond), StepName: "Compile", StepIndex: 2, StepTotal: 5},
+		{Type: eventDiagnostic, At: t0.Add(1500 * time.Millisecond), Level: "warning", Message: "warning: sample warning"},
+		{Type: eventCompleted, At: t0.Add(2 * time.Second), Message: "Ld", TaskCount: 2, DurationMS: 308},
+		{Type: eventDiagSummary, At: t0.Add(2500 * time.Millisecond), Stats: &statsCopy},
+		{Type: eventActionDone, At: t0.Add(2800 * time.Millisecond), Message: "Launch simulator", DurationMS: 400},
+		buildRunFinishedEvent(t0, t0.Add(3*time.Second), stats, nil, nil),
+	}
+}
+
+func assertGoldenBytes(t *testing.T, path string, got []byte) {
+	t.Helper()
+	got = bytes.TrimSpace(got)
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatalf("mkdir failed: %v", err)
+		}
+		if err := os.WriteFile(path, append(got, '\n'), 0o644); err != nil {
+			t.Fatalf("write golden failed: %v", err)
+		}
+	}
+	want, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read golden failed: %v", err)
+	}
+	want = bytes.TrimSpace(want)
+	if !bytes.Equal(got, want) {
+		t.Fatalf("golden mismatch for %s\nwant: %s\ngot:  %s", path, string(want), string(got))
 	}
 }

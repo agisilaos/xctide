@@ -84,6 +84,22 @@ type planResult struct {
 	XcodebuildCmd []string `json:"xcodebuild_command"`
 }
 
+type destinationOption struct {
+	Platform string `json:"platform,omitempty"`
+	Arch     string `json:"arch,omitempty"`
+	ID       string `json:"id,omitempty"`
+	OS       string `json:"os,omitempty"`
+	Name     string `json:"name,omitempty"`
+	Spec     string `json:"spec"`
+}
+
+type destinationsResult struct {
+	Project      string              `json:"project,omitempty"`
+	Workspace    string              `json:"workspace,omitempty"`
+	Scheme       string              `json:"scheme"`
+	Destinations []destinationOption `json:"destinations"`
+}
+
 func (s buildStats) MarshalJSON() ([]byte, error) {
 	type payload struct {
 		Warnings int `json:"warnings"`
@@ -334,6 +350,33 @@ func main() {
 		os.Exit(exitOK)
 	}
 
+	if commandMode == "destinations" {
+		if err := autoDetectConfig(&cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "xctide:", err)
+			os.Exit(exitConfigFailure)
+		}
+		options, err := listDestinations(cfg)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "xctide:", err)
+			os.Exit(exitRuntimeFailure)
+		}
+		result := destinationsResult{
+			Project:      cfg.projectPath,
+			Workspace:    cfg.workspacePath,
+			Scheme:       cfg.scheme,
+			Destinations: options,
+		}
+		if cfg.jsonOutput {
+			if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+				fmt.Fprintln(os.Stderr, "xctide:", err)
+				os.Exit(exitRuntimeFailure)
+			}
+		} else {
+			renderDestinationsResult(os.Stdout, result)
+		}
+		os.Exit(exitOK)
+	}
+
 	mode, err := resolveProgressMode(cfg, seen, isTerminal())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "xctide:", err)
@@ -448,6 +491,8 @@ func normalizeArgs(raw []string) ([]string, string, error) {
 		return raw[1:], "plan", nil
 	case "doctor":
 		return raw[1:], "doctor", nil
+	case "destinations":
+		return raw[1:], "destinations", nil
 	case "xcrun":
 		return raw[1:], "xcrun", nil
 	case "xctest":
@@ -465,6 +510,7 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  xctide run [flags] [-- <xcodebuild args>]")
 	_, _ = fmt.Fprintln(w, "  xctide plan [flags] [-- <xcodebuild args>]")
 	_, _ = fmt.Fprintln(w, "  xctide doctor [--json]")
+	_, _ = fmt.Fprintln(w, "  xctide destinations [flags] [--json]")
 	_, _ = fmt.Fprintln(w, "  xctide xcrun <args...>")
 	_, _ = fmt.Fprintln(w, "  xctide xctest <args...>")
 	_, _ = fmt.Fprintln(w, "")
@@ -494,12 +540,118 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  xctide run --scheme Subsmind --destination \"platform=iOS Simulator,id=<UDID>\"")
 	_, _ = fmt.Fprintln(w, "  xctide plan --scheme Subsmind -- test")
 	_, _ = fmt.Fprintln(w, "  xctide doctor")
+	_, _ = fmt.Fprintln(w, "  xctide destinations --scheme Subsmind")
 	_, _ = fmt.Fprintln(w, "  xctide xcrun simctl list devices available")
 	_, _ = fmt.Fprintln(w, "  xctide xctest -h")
 	_, _ = fmt.Fprintln(w, "  xctide --plain -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress plain -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress json -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress ndjson -- test")
+}
+
+func listDestinations(cfg buildConfig) ([]destinationOption, error) {
+	args := []string{}
+	if cfg.workspacePath != "" {
+		args = append(args, "-workspace", cfg.workspacePath)
+	} else if cfg.projectPath != "" {
+		args = append(args, "-project", cfg.projectPath)
+	} else {
+		return nil, errors.New("missing project or workspace for destinations")
+	}
+	args = append(args, "-scheme", cfg.scheme, "-showdestinations")
+	cmd := exec.Command("xcodebuild", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("xcodebuild -showdestinations failed: %w", err)
+	}
+	options := parseShowDestinationsOutput(out)
+	if len(options) == 0 {
+		return nil, errors.New("no destinations found")
+	}
+	return options, nil
+}
+
+func parseShowDestinationsOutput(data []byte) []destinationOption {
+	lines := strings.Split(string(data), "\n")
+	out := make([]destinationOption, 0, len(lines))
+	for _, raw := range lines {
+		line := strings.TrimSpace(raw)
+		if !strings.HasPrefix(line, "{") || !strings.HasSuffix(line, "}") {
+			continue
+		}
+		option, ok := parseDestinationDictLine(line)
+		if !ok {
+			continue
+		}
+		out = append(out, option)
+	}
+	return out
+}
+
+func parseDestinationDictLine(line string) (destinationOption, bool) {
+	body := strings.TrimSpace(line)
+	body = strings.TrimPrefix(body, "{")
+	body = strings.TrimSuffix(body, "}")
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return destinationOption{}, false
+	}
+	option := destinationOption{}
+	for _, part := range strings.Split(body, ",") {
+		part = strings.TrimSpace(part)
+		kv := strings.SplitN(part, ":", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		key := strings.TrimSpace(kv[0])
+		value := strings.TrimSpace(kv[1])
+		switch key {
+		case "platform":
+			option.Platform = value
+		case "arch":
+			option.Arch = value
+		case "id":
+			option.ID = value
+		case "OS":
+			option.OS = value
+		case "name":
+			option.Name = value
+		}
+	}
+	specParts := make([]string, 0, 3)
+	if option.Platform != "" {
+		specParts = append(specParts, "platform="+option.Platform)
+	}
+	if option.ID != "" {
+		specParts = append(specParts, "id="+option.ID)
+	}
+	if option.Name != "" {
+		specParts = append(specParts, "name="+option.Name)
+	}
+	option.Spec = strings.Join(specParts, ",")
+	return option, option.Spec != ""
+}
+
+func renderDestinationsResult(w io.Writer, result destinationsResult) {
+	fmt.Fprintln(w, "• Destinations")
+	if result.Workspace != "" {
+		fmt.Fprintf(w, "  Workspace %s\n", result.Workspace)
+	} else if result.Project != "" {
+		fmt.Fprintf(w, "  Project %s\n", result.Project)
+	}
+	fmt.Fprintf(w, "  Scheme %s\n", result.Scheme)
+	fmt.Fprintln(w, "")
+	for _, item := range result.Destinations {
+		label := strings.TrimSpace(strings.Join([]string{item.Platform, item.Name}, " "))
+		if item.OS != "" {
+			fmt.Fprintf(w, "  - %s (iOS %s)\n", label, item.OS)
+		} else {
+			fmt.Fprintf(w, "  - %s\n", label)
+		}
+		if item.Spec != "" {
+			fmt.Fprintf(w, "    %s\n", item.Spec)
+		}
+	}
 }
 
 func passthroughSpec(mode string, args []string) (string, []string, error) {

@@ -200,6 +200,19 @@ func TestNormalizeArgsDoctorMode(t *testing.T) {
 	}
 }
 
+func TestNormalizeArgsDestinationsMode(t *testing.T) {
+	args, mode, err := normalizeArgs([]string{"destinations", "--scheme", "Subsmind"})
+	if err != nil {
+		t.Fatalf("normalizeArgs returned error: %v", err)
+	}
+	if mode != "destinations" {
+		t.Fatalf("mode = %q, want destinations", mode)
+	}
+	if len(args) != 2 || args[0] != "--scheme" || args[1] != "Subsmind" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
 func TestNormalizeArgsXcrunMode(t *testing.T) {
 	args, mode, err := normalizeArgs([]string{"xcrun", "simctl", "list"})
 	if err != nil {
@@ -351,6 +364,49 @@ func TestDecodeXcodebuildListOutputWithoutJSON(t *testing.T) {
 	_, err := decodeXcodebuildListOutput([]byte("no json here"))
 	if err == nil {
 		t.Fatal("expected decode failure when output has no JSON object")
+	}
+}
+
+func TestParseDestinationDictLine(t *testing.T) {
+	line := "{ platform:iOS Simulator, arch:arm64, id:973281EF-824E-43BB-915F-DBD755A1291A, OS:26.2, name:iPhone 17 Pro }"
+	option, ok := parseDestinationDictLine(line)
+	if !ok {
+		t.Fatal("expected destination line to parse")
+	}
+	if option.Platform != "iOS Simulator" {
+		t.Fatalf("platform = %q, want %q", option.Platform, "iOS Simulator")
+	}
+	if option.Name != "iPhone 17 Pro" {
+		t.Fatalf("name = %q, want %q", option.Name, "iPhone 17 Pro")
+	}
+	if option.OS != "26.2" {
+		t.Fatalf("os = %q, want %q", option.OS, "26.2")
+	}
+	if option.ID == "" {
+		t.Fatal("expected non-empty id")
+	}
+	if !strings.Contains(option.Spec, "platform=iOS Simulator") || !strings.Contains(option.Spec, "id=973281EF-824E-43BB-915F-DBD755A1291A") {
+		t.Fatalf("unexpected spec: %q", option.Spec)
+	}
+}
+
+func TestParseShowDestinationsOutput(t *testing.T) {
+	raw := []byte(`Command line invocation:
+    /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -showdestinations
+
+	Available destinations for the "Subsmind" scheme:
+		{ platform:iOS Simulator, arch:arm64, id:973281EF-824E-43BB-915F-DBD755A1291A, OS:26.2, name:iPhone 17 Pro }
+		{ platform:iOS, arch:arm64, id:00008150-0001686E0C38401C, name:Agis iPhone }
+`)
+	options := parseShowDestinationsOutput(raw)
+	if len(options) != 2 {
+		t.Fatalf("len(options) = %d, want 2", len(options))
+	}
+	if options[0].Name != "iPhone 17 Pro" {
+		t.Fatalf("first destination name = %q, want iPhone 17 Pro", options[0].Name)
+	}
+	if options[1].Platform != "iOS" {
+		t.Fatalf("second destination platform = %q, want iOS", options[1].Platform)
 	}
 }
 

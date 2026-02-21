@@ -1,0 +1,36 @@
+# Destinations Command
+
+`xctide destinations` lists valid run/build destinations for the resolved scheme.
+
+## Why
+
+Projects can expose many simulator/device targets, and destination IDs can differ by runtime.
+This command avoids trial-and-error by showing valid destination specs you can copy directly into `--destination`.
+
+## Usage
+
+```bash
+xctide destinations --scheme Subsmind
+xctide destinations --scheme Subsmind --json
+xctide destinations --workspace App.xcworkspace --scheme App
+```
+
+## Output
+
+Human mode:
+
+- project/workspace + scheme header
+- destination list with platform/name/OS (when present)
+- copy-ready destination spec line (`platform=...,id=...,name=...`)
+
+JSON mode (`--json`):
+
+- `project` / `workspace`
+- `scheme`
+- `destinations[]` with: `platform`, `arch`, `id`, `os`, `name`, `spec`
+
+## Notes
+
+- Uses `xcodebuild -showdestinations` under the hood.
+- Respects normal config resolution (`--workspace`/`--project`/`--scheme`, env vars, autodetect).
+- If multiple schemes exist and `--no-input` is set, provide `--scheme` explicitly.

@@ -4,6 +4,8 @@ Use this checklist before cutting a release.
 
 ## Reliability
 
+- [ ] Run `xctide doctor` and resolve all failing checks.
+- [ ] Validate `xctide plan` matches expected `xcodebuild` invocation before real builds.
 - [ ] Validate `xctide build` on at least 3 real projects.
 - [ ] Validate `xctide run` on simulator (booted and shutdown states).
 - [ ] Validate `--progress plain|json|ndjson` produce consistent success/failure semantics.

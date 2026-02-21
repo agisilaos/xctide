@@ -14,6 +14,8 @@ go build -o xctide
 xctide
 xctide build
 xctide run --destination "platform=iOS Simulator,id=<UDID>"
+xctide plan --scheme Subsmind -- test
+xctide doctor
 xctide --scheme "Subsmind" --destination "platform=iOS Simulator,name=iPhone 16"
 xctide --plain -- -showBuildSettings
 xctide --progress plain -- test
@@ -37,6 +39,13 @@ xctide --json -- test
 - `--no-input` (disable interactive selection prompts)
 - `--no-color` (disable color output)
 - `--version`
+
+## Subcommands
+
+- `build`: default behavior, runs `xcodebuild` with resolved config.
+- `run`: build then launch app on simulator (requires simulator `id=` destination).
+- `plan`: resolve config and print exact `xcodebuild` command without executing.
+- `doctor`: validate local build prerequisites (`xcodebuild`, `xcrun`, simulators, project context).
 
 ## Exit codes
 
@@ -64,6 +73,7 @@ Precedence: flags > env > auto-detect/defaults.
 - Pass additional `xcodebuild` args after `--`.
 - When stdout/stderr is not a TTY, `xctide` automatically falls back to plain output.
 - `xctide run` performs build + simulator launch + install + app launch (requires simulator destination with `id=`).
+- Preflight docs for `doctor` and `plan`: `docs/doctor-and-plan.md`.
 
 ## Progress Event Model (v1)
 

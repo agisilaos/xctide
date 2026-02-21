@@ -172,6 +172,32 @@ func TestNormalizeArgsRunMode(t *testing.T) {
 	}
 }
 
+func TestNormalizeArgsPlanMode(t *testing.T) {
+	args, mode, err := normalizeArgs([]string{"plan", "--scheme", "Subsmind"})
+	if err != nil {
+		t.Fatalf("normalizeArgs returned error: %v", err)
+	}
+	if mode != "plan" {
+		t.Fatalf("mode = %q, want plan", mode)
+	}
+	if len(args) != 2 || args[0] != "--scheme" || args[1] != "Subsmind" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+func TestNormalizeArgsDoctorMode(t *testing.T) {
+	args, mode, err := normalizeArgs([]string{"doctor"})
+	if err != nil {
+		t.Fatalf("normalizeArgs returned error: %v", err)
+	}
+	if mode != "doctor" {
+		t.Fatalf("mode = %q, want doctor", mode)
+	}
+	if len(args) != 0 {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
 func TestParseTimingSummaryLine(t *testing.T) {
 	item, ok := parseTimingSummaryLine("Ld (2 tasks) | 0.308 seconds")
 	if !ok {
@@ -205,6 +231,63 @@ func TestTopErrorsFromEvents(t *testing.T) {
 	}
 	if top[0] != "first" || top[1] != "second" {
 		t.Fatalf("unexpected top errors: %#v", top)
+	}
+}
+
+func TestBuildPlanResult(t *testing.T) {
+	cfg := buildConfig{
+		workspacePath: "Subsmind.xcworkspace",
+		scheme:        "Subsmind",
+		configuration: "Debug",
+		destination:   "platform=iOS Simulator,id=ABC",
+		extraArgs:     []string{"build"},
+	}
+	result := buildPlanResult(cfg, "plan")
+	if result.Mode != "plan" {
+		t.Fatalf("mode = %q, want plan", result.Mode)
+	}
+	if result.Scheme != "Subsmind" {
+		t.Fatalf("scheme = %q, want Subsmind", result.Scheme)
+	}
+	if len(result.XcodebuildCmd) == 0 || result.XcodebuildCmd[0] != "xcodebuild" {
+		t.Fatalf("unexpected command: %#v", result.XcodebuildCmd)
+	}
+	foundScheme := false
+	foundAction := false
+	for i := 0; i < len(result.XcodebuildCmd); i++ {
+		if result.XcodebuildCmd[i] == "-scheme" && i+1 < len(result.XcodebuildCmd) && result.XcodebuildCmd[i+1] == "Subsmind" {
+			foundScheme = true
+		}
+		if result.XcodebuildCmd[i] == "build" {
+			foundAction = true
+		}
+	}
+	if !foundScheme {
+		t.Fatal("expected -scheme Subsmind in command preview")
+	}
+	if !foundAction {
+		t.Fatal("expected build action in command preview")
+	}
+}
+
+func TestParseAvailableSimulatorCount(t *testing.T) {
+	input := []byte(`{
+		"devices": {
+			"com.apple.CoreSimulator.SimRuntime.iOS-26-0": [
+				{"isAvailable": true},
+				{"isAvailable": false}
+			],
+			"com.apple.CoreSimulator.SimRuntime.iOS-25-0": [
+				{"isAvailable": true}
+			]
+		}
+	}`)
+	count, err := parseAvailableSimulatorCount(input)
+	if err != nil {
+		t.Fatalf("parseAvailableSimulatorCount returned error: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("count = %d, want 2", count)
 	}
 }
 

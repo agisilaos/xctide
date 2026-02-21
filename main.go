@@ -61,6 +61,29 @@ type buildStats struct {
 	failures int
 }
 
+type doctorCheck struct {
+	Name    string `json:"name"`
+	Status  string `json:"status"` // pass|warn|fail
+	Details string `json:"details"`
+	Hint    string `json:"hint,omitempty"`
+}
+
+type doctorResult struct {
+	Success bool          `json:"success"`
+	Checks  []doctorCheck `json:"checks"`
+}
+
+type planResult struct {
+	Mode          string   `json:"mode"`
+	Project       string   `json:"project,omitempty"`
+	Workspace     string   `json:"workspace,omitempty"`
+	Scheme        string   `json:"scheme"`
+	Configuration string   `json:"configuration"`
+	Destination   string   `json:"destination,omitempty"`
+	RunAfterBuild bool     `json:"run_after_build"`
+	XcodebuildCmd []string `json:"xcodebuild_command"`
+}
+
 func (s buildStats) MarshalJSON() ([]byte, error) {
 	type payload struct {
 		Warnings int `json:"warnings"`
@@ -260,15 +283,49 @@ func main() {
 	if cfg.configuration == "" {
 		cfg.configuration = "Debug"
 	}
-	mode, err := resolveProgressMode(cfg, seen, isTerminal())
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "xctide:", err)
-		os.Exit(exitInvalidUsage)
-	}
 
 	if showVersion {
 		fmt.Println(version)
 		return
+	}
+
+	if commandMode == "doctor" {
+		result := runDoctor(cfg)
+		if cfg.jsonOutput {
+			if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+				fmt.Fprintln(os.Stderr, "xctide:", err)
+				os.Exit(exitRuntimeFailure)
+			}
+		} else {
+			renderDoctorResult(os.Stdout, result)
+		}
+		if result.Success {
+			os.Exit(exitOK)
+		}
+		os.Exit(exitRuntimeFailure)
+	}
+
+	if commandMode == "plan" {
+		if err := autoDetectConfig(&cfg); err != nil {
+			fmt.Fprintln(os.Stderr, "xctide:", err)
+			os.Exit(exitConfigFailure)
+		}
+		result := buildPlanResult(cfg, commandMode)
+		if cfg.jsonOutput {
+			if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+				fmt.Fprintln(os.Stderr, "xctide:", err)
+				os.Exit(exitRuntimeFailure)
+			}
+		} else {
+			renderPlanResult(os.Stdout, result)
+		}
+		os.Exit(exitOK)
+	}
+
+	mode, err := resolveProgressMode(cfg, seen, isTerminal())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "xctide:", err)
+		os.Exit(exitInvalidUsage)
 	}
 
 	if err := autoDetectConfig(&cfg); err != nil {
@@ -375,6 +432,10 @@ func normalizeArgs(raw []string) ([]string, string, error) {
 		return raw[1:], "build", nil
 	case "run":
 		return raw[1:], "run", nil
+	case "plan":
+		return raw[1:], "plan", nil
+	case "doctor":
+		return raw[1:], "doctor", nil
 	}
 	return raw, "build", nil
 }
@@ -386,6 +447,8 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  xctide [flags] [-- <xcodebuild args>]")
 	_, _ = fmt.Fprintln(w, "  xctide build [flags] [-- <xcodebuild args>]")
 	_, _ = fmt.Fprintln(w, "  xctide run [flags] [-- <xcodebuild args>]")
+	_, _ = fmt.Fprintln(w, "  xctide plan [flags] [-- <xcodebuild args>]")
+	_, _ = fmt.Fprintln(w, "  xctide doctor [--json]")
 	_, _ = fmt.Fprintln(w, "")
 	_, _ = fmt.Fprintln(w, "FLAGS:")
 	_, _ = fmt.Fprintln(w, "  -h, --help            Show this help")
@@ -411,10 +474,206 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  xctide")
 	_, _ = fmt.Fprintln(w, "  xctide build --scheme Subsmind --destination \"platform=iOS Simulator,name=iPhone 16\"")
 	_, _ = fmt.Fprintln(w, "  xctide run --scheme Subsmind --destination \"platform=iOS Simulator,id=<UDID>\"")
+	_, _ = fmt.Fprintln(w, "  xctide plan --scheme Subsmind -- test")
+	_, _ = fmt.Fprintln(w, "  xctide doctor")
 	_, _ = fmt.Fprintln(w, "  xctide --plain -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress plain -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress json -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress ndjson -- test")
+}
+
+func buildPlanResult(cfg buildConfig, mode string) planResult {
+	args := buildArgs(cfg)
+	return planResult{
+		Mode:          mode,
+		Project:       cfg.projectPath,
+		Workspace:     cfg.workspacePath,
+		Scheme:        cfg.scheme,
+		Configuration: cfg.configuration,
+		Destination:   cfg.destination,
+		RunAfterBuild: cfg.runAfterBuild,
+		XcodebuildCmd: append([]string{"xcodebuild"}, args...),
+	}
+}
+
+func renderPlanResult(w io.Writer, result planResult) {
+	fmt.Fprintln(w, "• Resolved Configuration")
+	if result.Workspace != "" {
+		fmt.Fprintf(w, "  Workspace %s\n", result.Workspace)
+	} else if result.Project != "" {
+		fmt.Fprintf(w, "  Project %s\n", result.Project)
+	}
+	fmt.Fprintf(w, "  Scheme %s\n", result.Scheme)
+	fmt.Fprintf(w, "  Configuration %s\n", result.Configuration)
+	if result.Destination != "" {
+		fmt.Fprintf(w, "  Destination %s\n", result.Destination)
+	}
+	fmt.Fprintln(w, "")
+	fmt.Fprintln(w, "• Command Preview")
+	fmt.Fprintf(w, "  %s\n", strings.Join(result.XcodebuildCmd, " "))
+	if result.RunAfterBuild {
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "• Post Build")
+		fmt.Fprintln(w, "  run_after_build enabled (simulator boot/install/launch)")
+	}
+}
+
+func runDoctor(cfg buildConfig) doctorResult {
+	checks := []doctorCheck{
+		checkXcodebuild(),
+		checkXcrun(),
+		checkSimulators(),
+		checkProjectContext(cfg),
+	}
+	success := true
+	for _, check := range checks {
+		if check.Status == "fail" {
+			success = false
+			break
+		}
+	}
+	return doctorResult{
+		Success: success,
+		Checks:  checks,
+	}
+}
+
+func renderDoctorResult(w io.Writer, result doctorResult) {
+	fmt.Fprintln(w, "• Doctor")
+	for _, check := range result.Checks {
+		icon := "✓"
+		if check.Status == "warn" {
+			icon = "!"
+		}
+		if check.Status == "fail" {
+			icon = "x"
+		}
+		fmt.Fprintf(w, "  %s %s: %s\n", icon, check.Name, check.Details)
+		if check.Hint != "" {
+			fmt.Fprintf(w, "    hint: %s\n", check.Hint)
+		}
+	}
+	if result.Success {
+		fmt.Fprintln(w, "\n• Doctor Passed")
+	} else {
+		fmt.Fprintln(w, "\n• Doctor Found Issues")
+	}
+}
+
+func checkXcodebuild() doctorCheck {
+	path, err := exec.LookPath("xcodebuild")
+	if err != nil {
+		return doctorCheck{
+			Name:    "xcodebuild",
+			Status:  "fail",
+			Details: "xcodebuild not found in PATH",
+			Hint:    "Install Xcode and run xcode-select --switch /Applications/Xcode.app",
+		}
+	}
+	out, err := exec.Command("xcodebuild", "-version").CombinedOutput()
+	if err != nil {
+		return doctorCheck{
+			Name:    "xcodebuild",
+			Status:  "fail",
+			Details: fmt.Sprintf("xcodebuild present at %s but -version failed", path),
+			Hint:    strings.TrimSpace(string(out)),
+		}
+	}
+	first := strings.Split(strings.TrimSpace(string(out)), "\n")[0]
+	return doctorCheck{Name: "xcodebuild", Status: "pass", Details: fmt.Sprintf("%s (%s)", first, path)}
+}
+
+func checkXcrun() doctorCheck {
+	path, err := exec.LookPath("xcrun")
+	if err != nil {
+		return doctorCheck{
+			Name:    "xcrun",
+			Status:  "fail",
+			Details: "xcrun not found in PATH",
+			Hint:    "Install Command Line Tools: xcode-select --install",
+		}
+	}
+	out, err := exec.Command("xcrun", "--version").CombinedOutput()
+	if err != nil {
+		return doctorCheck{
+			Name:    "xcrun",
+			Status:  "fail",
+			Details: fmt.Sprintf("xcrun present at %s but --version failed", path),
+			Hint:    strings.TrimSpace(string(out)),
+		}
+	}
+	first := strings.Split(strings.TrimSpace(string(out)), "\n")[0]
+	return doctorCheck{Name: "xcrun", Status: "pass", Details: fmt.Sprintf("%s (%s)", first, path)}
+}
+
+func checkSimulators() doctorCheck {
+	out, err := exec.Command("xcrun", "simctl", "list", "devices", "available", "-j").CombinedOutput()
+	if err != nil {
+		return doctorCheck{
+			Name:    "simulators",
+			Status:  "fail",
+			Details: "unable to query simulators",
+			Hint:    strings.TrimSpace(string(out)),
+		}
+	}
+	count, err := parseAvailableSimulatorCount(out)
+	if err != nil {
+		return doctorCheck{
+			Name:    "simulators",
+			Status:  "fail",
+			Details: "unable to parse simulator list",
+			Hint:    err.Error(),
+		}
+	}
+	if count == 0 {
+		return doctorCheck{
+			Name:    "simulators",
+			Status:  "warn",
+			Details: "no available simulators found",
+			Hint:    "Open Xcode > Settings > Platforms and install at least one iOS simulator runtime",
+		}
+	}
+	return doctorCheck{Name: "simulators", Status: "pass", Details: fmt.Sprintf("%d available simulator(s)", count)}
+}
+
+func checkProjectContext(cfg buildConfig) doctorCheck {
+	if cfg.workspacePath != "" || cfg.projectPath != "" {
+		return doctorCheck{Name: "project_context", Status: "pass", Details: "project/workspace provided via flags or env"}
+	}
+	workspaces, projects := findXcodeContainers(".")
+	if len(workspaces) == 0 && len(projects) == 0 {
+		return doctorCheck{
+			Name:    "project_context",
+			Status:  "warn",
+			Details: "no .xcworkspace or .xcodeproj found in current directory",
+			Hint:    "Run doctor from your project root or pass --workspace/--project when building",
+		}
+	}
+	return doctorCheck{
+		Name:    "project_context",
+		Status:  "pass",
+		Details: fmt.Sprintf("found %d workspace(s), %d project(s)", len(workspaces), len(projects)),
+	}
+}
+
+func parseAvailableSimulatorCount(data []byte) (int, error) {
+	var payload struct {
+		Devices map[string][]struct {
+			IsAvailable bool `json:"isAvailable"`
+		} `json:"devices"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return 0, err
+	}
+	count := 0
+	for _, devices := range payload.Devices {
+		for _, device := range devices {
+			if device.IsAvailable {
+				count++
+			}
+		}
+	}
+	return count, nil
 }
 
 func visitedFlags(flagSet *flag.FlagSet) map[string]bool {

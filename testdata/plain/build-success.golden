@@ -1,0 +1,9 @@
+• Run Destination
+  Simulator iPhone 17 Pro
+
+• Completed
+  └ Build Ld (2 tasks) 0.3s
+  └ Build CodeSign (1 tasks) 0.1s
+
+• Build Succeeded 14s
+  warnings:1 errors:0 tests:0 failures:0

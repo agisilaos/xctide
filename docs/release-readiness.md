@@ -20,6 +20,7 @@ Use this checklist before cutting a release.
 ## UX
 
 - [ ] Confirm plain report is readable for success and failure paths.
+- [ ] Keep plain output golden fixtures current (`testdata/plain/*.golden`).
 - [ ] Confirm destination details are human-friendly (device/simulator + OS).
 - [ ] Confirm failure summaries highlight top actionable errors.
 

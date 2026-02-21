@@ -1,0 +1,12 @@
+• Run Destination
+  Simulator iPhone 17 Pro
+
+• Completed
+  └ Build Ld (2 tasks) 0.3s
+
+• Executed
+  └ Launch simulator         0.4s
+  └ Install iOS app          6.0s
+  └ Launch iOS app           1.5s
+
+• Build Succeeded 33s

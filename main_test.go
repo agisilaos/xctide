@@ -708,6 +708,64 @@ func TestContractGoldenNDJSON(t *testing.T) {
 	assertGoldenBytes(t, filepath.Join("testdata", "contracts", "sample.ndjson.golden"), []byte(strings.TrimSpace(buf.String())))
 }
 
+func TestPlainReportGoldenBuildSuccess(t *testing.T) {
+	cfg := buildConfig{
+		destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+	}
+	events := []buildEvent{
+		{Type: eventRunStarted, At: time.Date(2026, 2, 21, 10, 0, 0, 0, time.UTC)},
+		{Type: eventStepDone, StepName: "Prepare", StepStatus: "done", DurationMS: 1200},
+		{Type: eventRunFinished, Success: true},
+	}
+	completedRows := []completedItem{
+		{Name: "Ld", TaskCount: 2, DurationMS: 308},
+		{Name: "CodeSign", TaskCount: 1, DurationMS: 100},
+	}
+	stats := buildStats{warnings: 1, errors: 0, tests: 0, failures: 0}
+	var buf bytes.Buffer
+	renderPlainBuildReport(&buf, cfg, events, completedRows, nil, stats, 14*time.Second, nil)
+	assertGoldenBytes(t, filepath.Join("testdata", "plain", "build-success.golden"), []byte(strings.TrimSpace(buf.String())))
+}
+
+func TestPlainReportGoldenBuildFailure(t *testing.T) {
+	cfg := buildConfig{
+		destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+	}
+	events := []buildEvent{
+		{Type: eventDiagnostic, Level: "error", Message: "xcodebuild: error: Unable to find a destination matching the provided destination specifier:"},
+		{Type: eventRunFinished, Success: false},
+	}
+	stats := buildStats{warnings: 0, errors: 1, tests: 0, failures: 0}
+	var buf bytes.Buffer
+	cmd := exec.Command("sh", "-c", "exit 70")
+	err := cmd.Run()
+	renderPlainBuildReport(&buf, cfg, events, nil, nil, stats, 1*time.Second, err)
+	assertGoldenBytes(t, filepath.Join("testdata", "plain", "build-failure.golden"), []byte(strings.TrimSpace(buf.String())))
+}
+
+func TestPlainReportGoldenRunSuccess(t *testing.T) {
+	cfg := buildConfig{
+		runAfterBuild: true,
+		destination:   "platform=iOS Simulator,name=iPhone 17 Pro",
+	}
+	events := []buildEvent{
+		{Type: eventRunStarted, At: time.Date(2026, 2, 21, 10, 0, 0, 0, time.UTC)},
+		{Type: eventRunFinished, Success: true},
+	}
+	completedRows := []completedItem{
+		{Name: "Ld", TaskCount: 2, DurationMS: 308},
+	}
+	executedRows := []timedItem{
+		{name: "Launch simulator", duration: 400 * time.Millisecond},
+		{name: "Install iOS app", duration: 6 * time.Second},
+		{name: "Launch iOS app", duration: 1500 * time.Millisecond},
+	}
+	stats := buildStats{warnings: 0, errors: 0, tests: 0, failures: 0}
+	var buf bytes.Buffer
+	renderPlainBuildReport(&buf, cfg, events, completedRows, executedRows, stats, 33*time.Second, nil)
+	assertGoldenBytes(t, filepath.Join("testdata", "plain", "run-success.golden"), []byte(strings.TrimSpace(buf.String())))
+}
+
 func sampleContractJSONResult() jsonBuildResult {
 	events := sampleContractEvents()
 	stats := buildStats{warnings: 1, errors: 0, tests: 2, failures: 0}

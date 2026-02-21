@@ -2,7 +2,7 @@
 
 A small TUI wrapper around `xcodebuild` for a cleaner, local build experience.
 
-## Install (local)
+## Install
 
 ```bash
 go build -o xctide
@@ -112,4 +112,18 @@ When available, plain output includes a `Dependencies` section with slow non-pri
 2. `make release-dry-run VERSION=vX.Y.Z`
 3. `make release VERSION=vX.Y.Z`
 
+Release scripts:
+
+- `scripts/release-check.sh`
+- `scripts/release.sh`
+
 Release readiness checklist: `docs/release-readiness.md`
+
+## Docs
+
+- `docs/doctor-and-plan.md`
+- `docs/tooling-passthrough.md`
+- `docs/destinations.md`
+- `docs/validation-matrix.md`
+- `docs/release-validation.md`
+- `docs/release-readiness.md`

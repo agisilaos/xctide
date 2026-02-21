@@ -16,11 +16,15 @@ if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
   err "invalid VERSION '$VERSION' (expected vX.Y.Z)"
 fi
 
-for cmd in go git; do
+for cmd in go git python3; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
     err "required command not found: $cmd"
   fi
 done
+
+if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  err "must run inside a git repository"
+fi
 
 if [[ -n "$(git status --porcelain)" ]]; then
   err "working tree is not clean"
@@ -53,6 +57,7 @@ else
   before_mod="$(mktemp)"
   before_sum="$(mktemp)"
   had_sum=0
+  changed=0
   cp go.mod "$before_mod"
   if [[ -f go.sum ]]; then
     cp go.sum "$before_sum"
@@ -60,19 +65,19 @@ else
   fi
 
   go mod tidy
-  if ! diff -u "$before_mod" go.mod >/dev/null || ( [[ "$had_sum" -eq 1 ]] && ! diff -u "$before_sum" go.sum >/dev/null ) || ( [[ "$had_sum" -eq 0 ]] && [[ -f go.sum ]] ); then
+
+  if ! diff -u "$before_mod" go.mod >/dev/null; then
     diff -u "$before_mod" go.mod >&2 || true
-    if [[ "$had_sum" -eq 1 ]]; then
+    changed=1
+  fi
+  if [[ "$had_sum" -eq 1 ]]; then
+    if ! diff -u "$before_sum" go.sum >/dev/null; then
       diff -u "$before_sum" go.sum >&2 || true
+      changed=1
     fi
-    cp "$before_mod" go.mod
-    if [[ "$had_sum" -eq 1 ]]; then
-      cp "$before_sum" go.sum
-    else
-      rm -f go.sum
-    fi
-    rm -f "$before_mod" "$before_sum"
-    err "go.mod/go.sum drift detected; run go mod tidy"
+  elif [[ -f go.sum ]]; then
+    diff -u /dev/null go.sum >&2 || true
+    changed=1
   fi
 
   cp "$before_mod" go.mod
@@ -82,6 +87,10 @@ else
     rm -f go.sum
   fi
   rm -f "$before_mod" "$before_sum"
+
+  if [[ "$changed" -eq 1 ]]; then
+    err "go.mod/go.sum drift detected; run go mod tidy"
+  fi
 fi
 
 go test ./...

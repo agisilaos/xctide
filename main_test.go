@@ -319,6 +319,41 @@ func TestParseAvailableSimulatorCount(t *testing.T) {
 	}
 }
 
+func TestDecodeXcodebuildListOutput(t *testing.T) {
+	raw := []byte(`{
+		"project": { "schemes": ["A", "B"] }
+	}`)
+	result, err := decodeXcodebuildListOutput(raw)
+	if err != nil {
+		t.Fatalf("decodeXcodebuildListOutput returned error: %v", err)
+	}
+	if len(result.Project.Schemes) != 2 || result.Project.Schemes[0] != "A" || result.Project.Schemes[1] != "B" {
+		t.Fatalf("unexpected schemes: %#v", result.Project.Schemes)
+	}
+}
+
+func TestDecodeXcodebuildListOutputWithPrefixNoise(t *testing.T) {
+	raw := []byte(`xcodebuild warning: using first of multiple matching destinations
+{
+	"workspace": { "schemes": ["Subsmind"] }
+}
+`)
+	result, err := decodeXcodebuildListOutput(raw)
+	if err != nil {
+		t.Fatalf("decodeXcodebuildListOutput returned error: %v", err)
+	}
+	if len(result.Workspace.Schemes) != 1 || result.Workspace.Schemes[0] != "Subsmind" {
+		t.Fatalf("unexpected schemes: %#v", result.Workspace.Schemes)
+	}
+}
+
+func TestDecodeXcodebuildListOutputWithoutJSON(t *testing.T) {
+	_, err := decodeXcodebuildListOutput([]byte("no json here"))
+	if err == nil {
+		t.Fatal("expected decode failure when output has no JSON object")
+	}
+}
+
 func TestPassthroughSpecXcrun(t *testing.T) {
 	name, args, err := passthroughSpec("xcrun", []string{"simctl", "list", "devices"})
 	if err != nil {

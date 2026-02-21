@@ -1426,8 +1426,8 @@ func detectSchemes(cfg buildConfig) ([]string, error) {
 		return nil, fmt.Errorf("xcodebuild -list failed: %w", err)
 	}
 
-	var result xcodebuildList
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+	result, err := decodeXcodebuildListOutput(out.Bytes())
+	if err != nil {
 		return nil, fmt.Errorf("parse xcodebuild -list output failed: %w", err)
 	}
 
@@ -1442,6 +1442,30 @@ func detectSchemes(cfg buildConfig) ([]string, error) {
 	}
 	sort.Strings(schemes)
 	return schemes, nil
+}
+
+func decodeXcodebuildListOutput(data []byte) (xcodebuildList, error) {
+	var result xcodebuildList
+	if err := json.Unmarshal(data, &result); err == nil {
+		return result, nil
+	}
+	payload := extractJSONObject(data)
+	if len(payload) == 0 {
+		return xcodebuildList{}, errors.New("no JSON object found in xcodebuild output")
+	}
+	if err := json.Unmarshal(payload, &result); err != nil {
+		return xcodebuildList{}, err
+	}
+	return result, nil
+}
+
+func extractJSONObject(data []byte) []byte {
+	start := bytes.IndexByte(data, '{')
+	end := bytes.LastIndexByte(data, '}')
+	if start == -1 || end == -1 || end < start {
+		return nil
+	}
+	return bytes.TrimSpace(data[start : end+1])
 }
 
 func defaultPhases() []phase {

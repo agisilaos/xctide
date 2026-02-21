@@ -403,6 +403,73 @@ func TestParseDestinationDictLine(t *testing.T) {
 	}
 }
 
+func TestParseTargetStartLine(t *testing.T) {
+	line := "=== BUILD TARGET Markdown OF PROJECT swift-markdown WITH CONFIGURATION Debug ==="
+	target, project, ok := parseTargetStartLine(line)
+	if !ok {
+		t.Fatal("expected target start line to parse")
+	}
+	if target != "Markdown" {
+		t.Fatalf("target = %q, want %q", target, "Markdown")
+	}
+	if project != "swift-markdown" {
+		t.Fatalf("project = %q, want %q", project, "swift-markdown")
+	}
+}
+
+func TestParseTargetContextLine(t *testing.T) {
+	line := "SwiftCompile normal arm64 /tmp/File.swift (in target 'Markdown' from project 'swift-markdown')"
+	target, project, ok := parseTargetContextLine(line)
+	if !ok {
+		t.Fatal("expected target context line to parse")
+	}
+	if target != "Markdown" {
+		t.Fatalf("target = %q, want Markdown", target)
+	}
+	if project != "swift-markdown" {
+		t.Fatalf("project = %q, want swift-markdown", project)
+	}
+}
+
+func TestTargetTimingTrackerFallsBackToContextSpans(t *testing.T) {
+	tracker := newTargetTimingTracker()
+	start := time.Date(2026, 2, 21, 10, 0, 0, 0, time.UTC)
+	tracker.processLine("SwiftCompile ... (in target 'Markdown' from project 'swift-markdown')", start)
+	tracker.processLine("Ld ... (in target 'Markdown' from project 'swift-markdown')", start.Add(2*time.Second))
+	tracker.finish(start.Add(3 * time.Second))
+	if len(tracker.rows) == 0 {
+		t.Fatal("expected target rows from context fallback")
+	}
+	if tracker.rows[0].name != "Markdown" {
+		t.Fatalf("row name = %q, want Markdown", tracker.rows[0].name)
+	}
+	if tracker.rows[0].project != "swift-markdown" {
+		t.Fatalf("row project = %q, want swift-markdown", tracker.rows[0].project)
+	}
+	if tracker.rows[0].duration < 2*time.Second {
+		t.Fatalf("row duration = %s, want >= 2s", tracker.rows[0].duration)
+	}
+}
+
+func TestDependencyTargetRows(t *testing.T) {
+	cfg := buildConfig{
+		projectPath: "/tmp/Subsmind.xcodeproj",
+		scheme:      "Subsmind",
+	}
+	rows := []buildTargetTiming{
+		{name: "Subsmind", project: "Subsmind", duration: 2 * time.Second},
+		{name: "Markdown", project: "swift-markdown", duration: 4 * time.Second},
+		{name: "NIO", project: "swift-nio", duration: 3 * time.Second},
+	}
+	deps := dependencyTargetRows(cfg, rows)
+	if len(deps) != 2 {
+		t.Fatalf("len(deps) = %d, want 2", len(deps))
+	}
+	if deps[0].name != "Markdown" || deps[1].name != "NIO" {
+		t.Fatalf("unexpected dependency ordering: %#v", deps)
+	}
+}
+
 func TestParseShowDestinationsOutput(t *testing.T) {
 	raw := []byte(`Command line invocation:
     /Applications/Xcode.app/Contents/Developer/usr/bin/xcodebuild -showdestinations
@@ -764,7 +831,7 @@ func TestPlainReportGoldenBuildSuccess(t *testing.T) {
 	}
 	stats := buildStats{warnings: 1, errors: 0, tests: 0, failures: 0}
 	var buf bytes.Buffer
-	renderPlainBuildReport(&buf, cfg, events, completedRows, nil, stats, 14*time.Second, nil)
+	renderPlainBuildReport(&buf, cfg, events, completedRows, nil, nil, stats, 14*time.Second, nil)
 	assertGoldenBytes(t, filepath.Join("testdata", "plain", "build-success.golden"), []byte(strings.TrimSpace(buf.String())))
 }
 
@@ -782,7 +849,7 @@ func TestPlainReportGoldenBuildFailure(t *testing.T) {
 	var buf bytes.Buffer
 	cmd := exec.Command("sh", "-c", "exit 70")
 	err := cmd.Run()
-	renderPlainBuildReport(&buf, cfg, events, nil, nil, stats, 1*time.Second, err)
+	renderPlainBuildReport(&buf, cfg, events, nil, nil, nil, stats, 1*time.Second, err)
 	assertGoldenBytes(t, filepath.Join("testdata", "plain", "build-failure.golden"), []byte(strings.TrimSpace(buf.String())))
 }
 
@@ -805,7 +872,7 @@ func TestPlainReportGoldenRunSuccess(t *testing.T) {
 	}
 	stats := buildStats{warnings: 0, errors: 0, tests: 0, failures: 0}
 	var buf bytes.Buffer
-	renderPlainBuildReport(&buf, cfg, events, completedRows, executedRows, stats, 33*time.Second, nil)
+	renderPlainBuildReport(&buf, cfg, events, completedRows, nil, executedRows, stats, 33*time.Second, nil)
 	assertGoldenBytes(t, filepath.Join("testdata", "plain", "run-success.golden"), []byte(strings.TrimSpace(buf.String())))
 }
 

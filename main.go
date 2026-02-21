@@ -237,7 +237,8 @@ var (
 	testRe          = regexp.MustCompile(`^Test Case\b|^Test Suite\b`)
 	failRe          = regexp.MustCompile(`(?i)\b(failed|failures?)\b`)
 	phaseRe         = regexp.MustCompile(`^(CompileC|SwiftCompile|SwiftCompileSources|Ld|LinkStoryboards|CompileStoryboard|ProcessInfoPlistFile|ProcessPCH|CopyBundleResources|CodeSign|Test Suite)\b`)
-	targetStartRe   = regexp.MustCompile(`^=== BUILD TARGET (.+) OF PROJECT`)
+	targetStartRe   = regexp.MustCompile(`^=== BUILD TARGET (.+) OF PROJECT (.+?)(?: WITH CONFIGURATION .+)? ===$`)
+	targetContextRe = regexp.MustCompile(`\(in target '(.+)' from project '(.+)'\)`)
 	testCaseRe      = regexp.MustCompile(`^Test Case '-\[(.+)\]' (passed|failed) \((\d+\.?\d*) seconds\)`)
 	compileFileRe   = regexp.MustCompile(`(?i)\bCompile\w*\b.*\s(/[^\s]+\.swift)\b.*\((\d+\.?\d*)\s*s\)`)
 	timingSummaryRe = regexp.MustCompile(`^([A-Za-z0-9_]+ \([0-9]+ tasks?\)) \| ([0-9]+(?:\.[0-9]+)?) seconds$`)
@@ -2082,27 +2083,174 @@ func renderClassicView(m model) string {
 }
 
 type jsonBuildResult struct {
-	Success       bool            `json:"success"`
-	ExitCode      int             `json:"exit_code"`
-	DurationMS    int64           `json:"duration_ms"`
-	Command       []string        `json:"command"`
-	Project       string          `json:"project,omitempty"`
-	Workspace     string          `json:"workspace,omitempty"`
-	Scheme        string          `json:"scheme"`
-	Configuration string          `json:"configuration"`
-	Destination   string          `json:"destination,omitempty"`
-	Stats         buildStats      `json:"stats"`
-	PhaseTimeline []string        `json:"phase_timeline,omitempty"`
-	Completed     []completedItem `json:"completed,omitempty"`
-	Events        []buildEvent    `json:"events,omitempty"`
-	Executed      []jsonAction    `json:"executed,omitempty"`
-	TopErrors     []string        `json:"top_errors,omitempty"`
-	Error         string          `json:"error,omitempty"`
+	Success           bool               `json:"success"`
+	ExitCode          int                `json:"exit_code"`
+	DurationMS        int64              `json:"duration_ms"`
+	Command           []string           `json:"command"`
+	Project           string             `json:"project,omitempty"`
+	Workspace         string             `json:"workspace,omitempty"`
+	Scheme            string             `json:"scheme"`
+	Configuration     string             `json:"configuration"`
+	Destination       string             `json:"destination,omitempty"`
+	Stats             buildStats         `json:"stats"`
+	PhaseTimeline     []string           `json:"phase_timeline,omitempty"`
+	Completed         []completedItem    `json:"completed,omitempty"`
+	Events            []buildEvent       `json:"events,omitempty"`
+	Executed          []jsonAction       `json:"executed,omitempty"`
+	DependencyTargets []jsonTargetTiming `json:"dependency_targets,omitempty"`
+	TopErrors         []string           `json:"top_errors,omitempty"`
+	Error             string             `json:"error,omitempty"`
 }
 
 type jsonAction struct {
 	Name       string `json:"name"`
 	DurationMS int64  `json:"duration_ms"`
+}
+
+type jsonTargetTiming struct {
+	Name       string `json:"name"`
+	Project    string `json:"project,omitempty"`
+	DurationMS int64  `json:"duration_ms"`
+}
+
+type buildTargetTiming struct {
+	name     string
+	project  string
+	duration time.Duration
+}
+
+type targetTimingTracker struct {
+	currentName    string
+	currentProject string
+	currentStart   time.Time
+	rows           []buildTargetTiming
+	spans          map[string]buildTargetTimingSpan
+}
+
+type buildTargetTimingSpan struct {
+	name    string
+	project string
+	first   time.Time
+	last    time.Time
+}
+
+func newTargetTimingTracker() *targetTimingTracker {
+	return &targetTimingTracker{
+		rows:  make([]buildTargetTiming, 0),
+		spans: make(map[string]buildTargetTimingSpan),
+	}
+}
+
+func (t *targetTimingTracker) processLine(line string, now time.Time) {
+	target, project, ok := parseTargetStartLine(line)
+	if ok {
+		if t.currentName != "" && !t.currentStart.IsZero() {
+			t.rows = append(t.rows, buildTargetTiming{
+				name:     t.currentName,
+				project:  t.currentProject,
+				duration: now.Sub(t.currentStart),
+			})
+		}
+		t.currentName = target
+		t.currentProject = project
+		t.currentStart = now
+	}
+
+	ctxTarget, ctxProject, ok := parseTargetContextLine(line)
+	if ok {
+		key := ctxProject + "::" + ctxTarget
+		span, exists := t.spans[key]
+		if !exists {
+			span = buildTargetTimingSpan{
+				name:    ctxTarget,
+				project: ctxProject,
+				first:   now,
+				last:    now,
+			}
+		} else {
+			span.last = now
+		}
+		t.spans[key] = span
+	}
+}
+
+func (t *targetTimingTracker) finish(now time.Time) {
+	if t.currentName != "" && !t.currentStart.IsZero() {
+		t.rows = append(t.rows, buildTargetTiming{
+			name:     t.currentName,
+			project:  t.currentProject,
+			duration: now.Sub(t.currentStart),
+		})
+	}
+	t.currentName = ""
+	t.currentProject = ""
+	t.currentStart = time.Time{}
+	t.mergeRowsFromSpans()
+}
+
+func parseTargetStartLine(line string) (target string, project string, ok bool) {
+	match := targetStartRe.FindStringSubmatch(line)
+	if len(match) == 3 {
+		return strings.TrimSpace(match[1]), strings.TrimSpace(match[2]), true
+	}
+	return "", "", false
+}
+
+func parseTargetContextLine(line string) (target string, project string, ok bool) {
+	match := targetContextRe.FindStringSubmatch(line)
+	if len(match) == 3 {
+		return strings.TrimSpace(match[1]), strings.TrimSpace(match[2]), true
+	}
+	return "", "", false
+}
+
+func (t *targetTimingTracker) mergeRowsFromSpans() {
+	if len(t.spans) == 0 {
+		return
+	}
+	seen := make(map[string]bool)
+	for _, row := range t.rows {
+		seen[row.project+"::"+row.name] = true
+	}
+	for key, span := range t.spans {
+		if seen[key] {
+			continue
+		}
+		duration := span.last.Sub(span.first)
+		if duration < 0 {
+			duration = 0
+		}
+		t.rows = append(t.rows, buildTargetTiming{
+			name:     span.name,
+			project:  span.project,
+			duration: duration,
+		})
+	}
+}
+
+func dependencyTargetRows(cfg buildConfig, rows []buildTargetTiming) []buildTargetTiming {
+	if len(rows) == 0 {
+		return nil
+	}
+	rootProject := strings.TrimSuffix(filepath.Base(cfg.projectPath), filepath.Ext(cfg.projectPath))
+	out := make([]buildTargetTiming, 0, len(rows))
+	for _, row := range rows {
+		if strings.EqualFold(strings.TrimSpace(row.name), strings.TrimSpace(cfg.scheme)) {
+			continue
+		}
+		project := strings.TrimSpace(row.project)
+		if project == "" {
+			continue
+		}
+		if rootProject != "" && strings.EqualFold(project, rootProject) {
+			continue
+		}
+		out = append(out, row)
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return out[i].duration > out[j].duration
+	})
+	return out
 }
 
 func topErrorsFromEvents(events []buildEvent, limit int) []string {
@@ -2286,10 +2434,13 @@ func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
 	}()
 
 	tracker := newEventTracker()
+	targetTracker := newTargetTimingTracker()
 	timingRows := make([]completedItem, 0)
 	inTimingSummary := false
 	for line := range lines {
-		_ = tracker.processLine(line, time.Now())
+		now := time.Now()
+		_ = tracker.processLine(line, now)
+		targetTracker.processLine(line, now)
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "Build Timing Summary" {
 			inTimingSummary = true
@@ -2309,6 +2460,7 @@ func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
 		}
 	}
 	waitErr := cmd.Wait()
+	targetTracker.finish(time.Now())
 	_ = tracker.finish(waitErr, time.Now())
 	var executedRows []timedItem
 	if waitErr == nil && cfg.runAfterBuild {
@@ -2331,6 +2483,17 @@ func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
 		Completed:     completedFromTimingRows(timingRows),
 		Events:        append([]buildEvent(nil), tracker.events...),
 		TopErrors:     topErrorsFromEvents(tracker.events, 5),
+	}
+	dependencyRows := dependencyTargetRows(cfg, targetTracker.rows)
+	if len(dependencyRows) > 0 {
+		result.DependencyTargets = make([]jsonTargetTiming, 0, len(dependencyRows))
+		for _, row := range dependencyRows {
+			result.DependencyTargets = append(result.DependencyTargets, jsonTargetTiming{
+				Name:       row.name,
+				Project:    row.project,
+				DurationMS: row.duration.Milliseconds(),
+			})
+		}
 	}
 	if len(executedRows) > 0 {
 		result.Executed = make([]jsonAction, 0, len(executedRows))
@@ -2565,11 +2728,9 @@ func runProgressPlainBuild(cfg buildConfig) error {
 	}()
 
 	tracker := newEventTracker()
+	targetTracker := newTargetTimingTracker()
 	timingRows := make([]completedItem, 0)
 	inTimingSummary := false
-	var targetRows []timedItem
-	currentTarget := ""
-	currentTargetStart := time.Time{}
 	commandLabel := "build"
 	if cfg.runAfterBuild {
 		commandLabel = "run"
@@ -2577,14 +2738,9 @@ func runProgressPlainBuild(cfg buildConfig) error {
 	fmt.Fprintf(os.Stdout, "xctide $ xctide %s %s %s %s\n\n", commandLabel, filepath.Base(firstNonEmpty(cfg.workspacePath, cfg.projectPath)), cfg.scheme, cfg.configuration)
 
 	for line := range lines {
-		_ = tracker.processLine(line, time.Now())
-		if match := targetStartRe.FindStringSubmatch(line); len(match) > 1 {
-			if currentTarget != "" && !currentTargetStart.IsZero() {
-				targetRows = append(targetRows, timedItem{name: currentTarget, duration: time.Since(currentTargetStart)})
-			}
-			currentTarget = strings.TrimSpace(match[1])
-			currentTargetStart = time.Now()
-		}
+		now := time.Now()
+		_ = tracker.processLine(line, now)
+		targetTracker.processLine(line, now)
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "Build Timing Summary" {
 			inTimingSummary = true
@@ -2605,24 +2761,23 @@ func runProgressPlainBuild(cfg buildConfig) error {
 	}
 
 	err = cmd.Wait()
-	if currentTarget != "" && !currentTargetStart.IsZero() {
-		targetRows = append(targetRows, timedItem{name: currentTarget, duration: time.Since(currentTargetStart)})
-	}
+	targetTracker.finish(time.Now())
 	_ = tracker.finish(err, time.Now())
 	var executedRows []timedItem
 	if err == nil && cfg.runAfterBuild {
 		executedRows, err = runAppOnSimulator(cfg)
 	}
-	completedRows := completedFromTargetRows(targetRows)
+	completedRows := completedFromTargetRows(targetTracker.rows)
 	if len(timingRows) > 0 {
 		completedRows = timingRows
 	}
+	dependencyRows := dependencyTargetRows(cfg, targetTracker.rows)
 	stats := tracker.stats
-	renderPlainBuildReport(os.Stdout, cfg, tracker.events, completedRows, executedRows, stats, time.Since(start), err)
+	renderPlainBuildReport(os.Stdout, cfg, tracker.events, completedRows, dependencyRows, executedRows, stats, time.Since(start), err)
 	return err
 }
 
-func renderPlainBuildReport(w io.Writer, cfg buildConfig, events []buildEvent, completedRows []completedItem, executedRows []timedItem, stats buildStats, elapsed time.Duration, err error) {
+func renderPlainBuildReport(w io.Writer, cfg buildConfig, events []buildEvent, completedRows []completedItem, dependencyRows []buildTargetTiming, executedRows []timedItem, stats buildStats, elapsed time.Duration, err error) {
 	fmt.Fprintln(w, "• Run Destination")
 	destinationKind, destinationName, osVersion := destinationSummary(cfg.destination)
 	if destinationName != "" {
@@ -2653,6 +2808,25 @@ func renderPlainBuildReport(w io.Writer, cfg buildConfig, events []buildEvent, c
 		}
 	}
 	fmt.Fprintln(w, "")
+
+	if len(dependencyRows) > 0 {
+		fmt.Fprintln(w, "• Dependencies")
+		limit := len(dependencyRows)
+		if limit > 12 {
+			limit = 12
+		}
+		for _, row := range dependencyRows[:limit] {
+			label := row.name
+			if row.project != "" {
+				label = fmt.Sprintf("%s (%s)", row.name, row.project)
+			}
+			fmt.Fprintf(w, "  └ Build %-24s %s\n", label, formatDurationDur(row.duration))
+		}
+		if len(dependencyRows) > limit {
+			fmt.Fprintf(w, "  ... and %d more\n", len(dependencyRows)-limit)
+		}
+		fmt.Fprintln(w, "")
+	}
 
 	if len(executedRows) > 0 {
 		fmt.Fprintln(w, "• Executed")
@@ -2709,7 +2883,7 @@ func formatDurationDur(value time.Duration) string {
 	return fmt.Sprintf("%.1fs", value.Seconds())
 }
 
-func completedFromTargetRows(rows []timedItem) []completedItem {
+func completedFromTargetRows(rows []buildTargetTiming) []completedItem {
 	if len(rows) == 0 {
 		return nil
 	}

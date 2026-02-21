@@ -104,6 +104,8 @@ In `--progress json`, events are returned in `events[]`, phase order in `phase_t
 In `--progress ndjson`, each event is emitted as one JSON object per line in real time (including `completed_item` and `diagnostic_summary`), with `run_finished` emitted last.
 Formal contract: `docs/machine-contract.md`.
 
+When available, plain output includes a `Dependencies` section with slow non-primary build targets (typically SPM/package targets), and JSON includes `dependency_targets[]`.
+
 ## Release
 
 1. `make release-check VERSION=vX.Y.Z`

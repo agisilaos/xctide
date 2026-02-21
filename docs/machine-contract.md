@@ -66,6 +66,7 @@ Top-level summary includes:
 - `phase_timeline[]`
 - `completed[]`
 - `executed[]` (for `xctide run`)
+- `dependency_targets[]` (when dependency/package target timing data is available)
 - `top_errors[]`
 
 Consumers should treat `events[]` as the canonical timeline and use summary arrays as convenience projections.

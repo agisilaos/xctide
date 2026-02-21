@@ -198,6 +198,7 @@ type phase struct {
 type model struct {
 	config       buildConfig
 	startTime    time.Time
+	finishedAt   time.Time
 	phase        string
 	lines        []string
 	phaseLogs    map[string][]string
@@ -1217,6 +1218,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, listenLines(m.session)
 	case doneMsg:
 		m.finished = true
+		if m.finishedAt.IsZero() {
+			m.finishedAt = time.Now()
+		}
 		m.err = msg.err
 		if m.tracker != nil {
 			events := m.tracker.finish(msg.err, time.Now())
@@ -1873,7 +1877,7 @@ func renderFooter(m model, labelStyle, accentStyle, warnStyle, errorStyle lipglo
 			statusLabel = "build failed"
 			statusStyle = errorStyle
 		}
-		total := time.Since(m.startTime).Truncate(time.Second)
+		total := modelElapsed(m)
 		b.WriteString(statusStyle.Render(fmt.Sprintf("%s · total %s", statusLabel, total)))
 		b.WriteString("\n")
 		b.WriteString(labelStyle.Render("controls: q quit"))
@@ -1896,23 +1900,13 @@ func renderClassicView(m model) string {
 	accentStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("81")).Bold(true)
 	errorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("204")).Bold(true)
 
-	elapsed := time.Since(m.startTime).Truncate(time.Second)
+	elapsed := modelElapsed(m)
 	projectValue := m.config.projectPath
 	if m.config.workspacePath != "" {
 		projectValue = m.config.workspacePath
 	}
 
-	completed := 0
-	skipped := 0
-	for _, phase := range m.phases {
-		if phase.status == "done" || phase.status == "skipped" || phase.status == "failed" {
-			completed++
-		}
-		if phase.status == "skipped" {
-			skipped++
-		}
-	}
-	totalPhases := len(m.phases)
+	completed, totalPhases, skipped := progressCounts(m.phases)
 	progressPercent := 0
 	if totalPhases > 0 {
 		progressPercent = (completed * 100) / totalPhases
@@ -2094,6 +2088,33 @@ func renderClassicView(m model) string {
 	b.WriteString("\n\n")
 
 	return strings.TrimSpace(b.String())
+}
+
+func modelElapsed(m model) time.Duration {
+	if m.startTime.IsZero() {
+		return 0
+	}
+	if m.finished && !m.finishedAt.IsZero() {
+		return m.finishedAt.Sub(m.startTime).Truncate(time.Second)
+	}
+	return time.Since(m.startTime).Truncate(time.Second)
+}
+
+func progressCounts(phases []phase) (completed int, total int, skipped int) {
+	total = len(phases)
+	for _, p := range phases {
+		switch p.status {
+		case "done", "failed":
+			completed++
+		case "skipped":
+			skipped++
+		}
+	}
+	total = total - skipped
+	if total <= 0 {
+		total = len(phases)
+	}
+	return completed, total, skipped
 }
 
 type jsonBuildResult struct {

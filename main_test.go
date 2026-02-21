@@ -173,6 +173,41 @@ func TestShouldPrintWrapperError(t *testing.T) {
 	}
 }
 
+func TestProgressCounts(t *testing.T) {
+	phases := []phase{
+		{name: "Prepare", status: "done"},
+		{name: "Compile", status: "done"},
+		{name: "Link", status: "failed"},
+		{name: "Sign", status: "done"},
+		{name: "Test", status: "skipped"},
+	}
+	completed, total, skipped := progressCounts(phases)
+	if completed != 4 {
+		t.Fatalf("completed = %d, want 4", completed)
+	}
+	if total != 4 {
+		t.Fatalf("total = %d, want 4 (non-skipped phases)", total)
+	}
+	if skipped != 1 {
+		t.Fatalf("skipped = %d, want 1", skipped)
+	}
+}
+
+func TestModelElapsed(t *testing.T) {
+	start := time.Unix(100, 0)
+	finished := start.Add(5 * time.Second)
+
+	m := model{startTime: start, finished: true, finishedAt: finished}
+	if got := modelElapsed(m); got != 5*time.Second {
+		t.Fatalf("modelElapsed(finished) = %s, want 5s", got)
+	}
+
+	m = model{startTime: start, finished: true}
+	if got := modelElapsed(m); got < 0 {
+		t.Fatalf("modelElapsed(without finishedAt) = %s, want >= 0", got)
+	}
+}
+
 func TestChooseOneIndexNoInputProvidesExample(t *testing.T) {
 	_, err := chooseOneIndex("scheme", []string{"Subsmind", "Subsmind - dev"}, true)
 	if err == nil {

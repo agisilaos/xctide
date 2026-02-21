@@ -198,6 +198,32 @@ func TestNormalizeArgsDoctorMode(t *testing.T) {
 	}
 }
 
+func TestNormalizeArgsXcrunMode(t *testing.T) {
+	args, mode, err := normalizeArgs([]string{"xcrun", "simctl", "list"})
+	if err != nil {
+		t.Fatalf("normalizeArgs returned error: %v", err)
+	}
+	if mode != "xcrun" {
+		t.Fatalf("mode = %q, want xcrun", mode)
+	}
+	if len(args) != 2 || args[0] != "simctl" || args[1] != "list" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+func TestNormalizeArgsXctestMode(t *testing.T) {
+	args, mode, err := normalizeArgs([]string{"xctest", "-h"})
+	if err != nil {
+		t.Fatalf("normalizeArgs returned error: %v", err)
+	}
+	if mode != "xctest" {
+		t.Fatalf("mode = %q, want xctest", mode)
+	}
+	if len(args) != 1 || args[0] != "-h" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
 func TestParseTimingSummaryLine(t *testing.T) {
 	item, ok := parseTimingSummaryLine("Ld (2 tasks) | 0.308 seconds")
 	if !ok {
@@ -288,6 +314,52 @@ func TestParseAvailableSimulatorCount(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("count = %d, want 2", count)
+	}
+}
+
+func TestPassthroughSpecXcrun(t *testing.T) {
+	name, args, err := passthroughSpec("xcrun", []string{"simctl", "list", "devices"})
+	if err != nil {
+		t.Fatalf("passthroughSpec returned error: %v", err)
+	}
+	if name != "xcrun" {
+		t.Fatalf("name = %q, want xcrun", name)
+	}
+	if len(args) != 3 || args[0] != "simctl" || args[1] != "list" || args[2] != "devices" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+func TestPassthroughSpecXcrunRequiresArgs(t *testing.T) {
+	_, _, err := passthroughSpec("xcrun", nil)
+	if err == nil {
+		t.Fatal("expected error when xcrun is missing arguments")
+	}
+}
+
+func TestPassthroughSpecXctest(t *testing.T) {
+	name, args, err := passthroughSpec("xctest", []string{"-h"})
+	if err != nil {
+		t.Fatalf("passthroughSpec returned error: %v", err)
+	}
+	if name != "xcrun" {
+		t.Fatalf("name = %q, want xcrun", name)
+	}
+	if len(args) != 2 || args[0] != "xctest" || args[1] != "-h" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+func TestPassthroughSpecStripsLeadingDoubleDash(t *testing.T) {
+	name, args, err := passthroughSpec("xcrun", []string{"--", "simctl", "list"})
+	if err != nil {
+		t.Fatalf("passthroughSpec returned error: %v", err)
+	}
+	if name != "xcrun" {
+		t.Fatalf("name = %q, want xcrun", name)
+	}
+	if len(args) != 2 || args[0] != "simctl" || args[1] != "list" {
+		t.Fatalf("unexpected args: %#v", args)
 	}
 }
 

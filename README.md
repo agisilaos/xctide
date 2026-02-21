@@ -16,6 +16,8 @@ xctide build
 xctide run --destination "platform=iOS Simulator,id=<UDID>"
 xctide plan --scheme Subsmind -- test
 xctide doctor
+xctide xcrun simctl list devices available
+xctide xctest -h
 xctide --scheme "Subsmind" --destination "platform=iOS Simulator,name=iPhone 16"
 xctide --plain -- -showBuildSettings
 xctide --progress plain -- test
@@ -46,6 +48,8 @@ xctide --json -- test
 - `run`: build then launch app on simulator (requires simulator `id=` destination).
 - `plan`: resolve config and print exact `xcodebuild` command without executing.
 - `doctor`: validate local build prerequisites (`xcodebuild`, `xcrun`, simulators, project context).
+- `xcrun`: explicit passthrough to `xcrun` for simulator/runtime tooling flows.
+- `xctest`: explicit passthrough to `xcrun xctest` for direct test runner use.
 
 ## Exit codes
 
@@ -74,6 +78,7 @@ Precedence: flags > env > auto-detect/defaults.
 - When stdout/stderr is not a TTY, `xctide` automatically falls back to plain output.
 - `xctide run` performs build + simulator launch + install + app launch (requires simulator destination with `id=`).
 - Preflight docs for `doctor` and `plan`: `docs/doctor-and-plan.md`.
+- Tool passthrough docs for `xcrun` and `xctest`: `docs/tooling-passthrough.md`.
 
 ## Progress Event Model (v1)
 

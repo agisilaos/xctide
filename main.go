@@ -248,6 +248,14 @@ func main() {
 	if commandMode == "run" {
 		cfg.runAfterBuild = true
 	}
+	if commandMode == "xcrun" || commandMode == "xctest" {
+		execName, execArgs, err := passthroughSpec(commandMode, args)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "xctide:", err)
+			os.Exit(exitInvalidUsage)
+		}
+		os.Exit(runPassthrough(execName, execArgs))
+	}
 
 	flagSet := flag.NewFlagSet("xctide", flag.ContinueOnError)
 	flagSet.SetOutput(os.Stderr)
@@ -436,6 +444,10 @@ func normalizeArgs(raw []string) ([]string, string, error) {
 		return raw[1:], "plan", nil
 	case "doctor":
 		return raw[1:], "doctor", nil
+	case "xcrun":
+		return raw[1:], "xcrun", nil
+	case "xctest":
+		return raw[1:], "xctest", nil
 	}
 	return raw, "build", nil
 }
@@ -449,6 +461,8 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  xctide run [flags] [-- <xcodebuild args>]")
 	_, _ = fmt.Fprintln(w, "  xctide plan [flags] [-- <xcodebuild args>]")
 	_, _ = fmt.Fprintln(w, "  xctide doctor [--json]")
+	_, _ = fmt.Fprintln(w, "  xctide xcrun <args...>")
+	_, _ = fmt.Fprintln(w, "  xctide xctest <args...>")
 	_, _ = fmt.Fprintln(w, "")
 	_, _ = fmt.Fprintln(w, "FLAGS:")
 	_, _ = fmt.Fprintln(w, "  -h, --help            Show this help")
@@ -476,10 +490,47 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  xctide run --scheme Subsmind --destination \"platform=iOS Simulator,id=<UDID>\"")
 	_, _ = fmt.Fprintln(w, "  xctide plan --scheme Subsmind -- test")
 	_, _ = fmt.Fprintln(w, "  xctide doctor")
+	_, _ = fmt.Fprintln(w, "  xctide xcrun simctl list devices available")
+	_, _ = fmt.Fprintln(w, "  xctide xctest -h")
 	_, _ = fmt.Fprintln(w, "  xctide --plain -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress plain -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress json -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress ndjson -- test")
+}
+
+func passthroughSpec(mode string, args []string) (string, []string, error) {
+	cleanArgs := args
+	if len(cleanArgs) > 0 && cleanArgs[0] == "--" {
+		cleanArgs = cleanArgs[1:]
+	}
+	switch mode {
+	case "xcrun":
+		if len(cleanArgs) == 0 {
+			return "", nil, errors.New("xcrun requires arguments (example: xctide xcrun simctl list devices)")
+		}
+		return "xcrun", cleanArgs, nil
+	case "xctest":
+		return "xcrun", append([]string{"xctest"}, cleanArgs...), nil
+	default:
+		return "", nil, fmt.Errorf("unsupported passthrough mode %q", mode)
+	}
+}
+
+func runPassthrough(name string, args []string) int {
+	cmd := exec.Command(name, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
+	if err := cmd.Run(); err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+				return status.ExitStatus()
+			}
+		}
+		return exitRuntimeFailure
+	}
+	return exitOK
 }
 
 func buildPlanResult(cfg buildConfig, mode string) planResult {

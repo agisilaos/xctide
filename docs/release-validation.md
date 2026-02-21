@@ -1,18 +1,20 @@
 # Release Validation (2026-02-21)
 
-Release flow was validated on a clean worktree without publishing a release.
+Release flow was validated on a clean worktree and then executed for `v0.1.0`.
 
 ## Commands Run
 
 ```bash
 make release-check VERSION=v0.1.0
 make release-dry-run VERSION=v0.1.0
+make release VERSION=v0.1.0
 ```
 
 ## Results
 
 - `release-check`: passed
 - `release-dry-run`: passed
+- `release`: passed
 - Dry-run artifacts prepared:
   - `dist/xctide_0.1.0_darwin_amd64.tar.gz`
   - `dist/xctide_0.1.0_darwin_arm64.tar.gz`
@@ -25,5 +27,5 @@ make release-dry-run VERSION=v0.1.0
 
 ## Notes
 
-- This validation does **not** publish a release.
-- Real release remains gated on final UX polish and release decision.
+- Published release:
+  - `https://github.com/agisilaos/xctide/releases/tag/v0.1.0`

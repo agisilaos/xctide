@@ -80,6 +80,7 @@ Precedence: flags > env > auto-detect/defaults.
 - Preflight docs for `doctor` and `plan`: `docs/doctor-and-plan.md`.
 - Tool passthrough docs for `xcrun` and `xctest`: `docs/tooling-passthrough.md`.
 - Real-machine validation matrix notes: `docs/validation-matrix.md`.
+- Release check and dry-run results: `docs/release-validation.md`.
 
 ## Progress Event Model (v1)
 

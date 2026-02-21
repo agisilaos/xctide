@@ -40,3 +40,4 @@ JSON mode (`--json`):
   - `--simulator-only`
   - `--device-only`
 - If multiple schemes exist and `--no-input` is set, provide `--scheme` explicitly.
+- On destination mismatch failures during build/run, `xctide` now suggests a ready-to-run `xctide destinations ...` hint.

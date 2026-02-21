@@ -156,6 +156,17 @@ func TestHasBuildAction(t *testing.T) {
 	}
 }
 
+func TestChooseOneIndexNoInputProvidesExample(t *testing.T) {
+	_, err := chooseOneIndex("scheme", []string{"Subsmind", "Subsmind - dev"}, true)
+	if err == nil {
+		t.Fatal("expected chooseOneIndex to fail in no-input mode with multiple options")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "--scheme <value>") || !strings.Contains(msg, "--scheme \"Subsmind\"") {
+		t.Fatalf("unexpected error guidance: %q", msg)
+	}
+}
+
 func TestDestinationUDID(t *testing.T) {
 	udid := destinationUDID("platform=iOS Simulator,id=ABC-123,name=iPhone 16 Pro")
 	if udid != "ABC-123" {
@@ -759,6 +770,8 @@ func TestPlainReportGoldenBuildSuccess(t *testing.T) {
 
 func TestPlainReportGoldenBuildFailure(t *testing.T) {
 	cfg := buildConfig{
+		projectPath: "Subsmind.xcodeproj",
+		scheme:      "Subsmind",
 		destination: "platform=iOS Simulator,name=iPhone 17 Pro",
 	}
 	events := []buildEvent{
@@ -794,6 +807,19 @@ func TestPlainReportGoldenRunSuccess(t *testing.T) {
 	var buf bytes.Buffer
 	renderPlainBuildReport(&buf, cfg, events, completedRows, executedRows, stats, 33*time.Second, nil)
 	assertGoldenBytes(t, filepath.Join("testdata", "plain", "run-success.golden"), []byte(strings.TrimSpace(buf.String())))
+}
+
+func TestDestinationErrorHint(t *testing.T) {
+	cfg := buildConfig{
+		projectPath: "Subsmind.xcodeproj",
+		scheme:      "Subsmind",
+	}
+	errors := []string{"xcodebuild: error: Unable to find a destination matching the provided destination specifier:"}
+	hint := destinationErrorHint(cfg, errors)
+	want := "xctide destinations --scheme Subsmind --project Subsmind.xcodeproj"
+	if hint != want {
+		t.Fatalf("hint = %q, want %q", hint, want)
+	}
 }
 
 func sampleContractJSONResult() jsonBuildResult {

@@ -7,3 +7,4 @@
   warnings:0 errors:1 tests:0 failures:0
   top errors:
   - xcodebuild: error: Unable to find a destination matching the provided destination specifier:
+  hint: xctide destinations --scheme Subsmind --project Subsmind.xcodeproj

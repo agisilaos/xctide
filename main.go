@@ -2211,7 +2211,14 @@ func chooseOneIndex(kind string, options []string, noInput bool) (int, error) {
 		return 0, nil
 	}
 	if noInput || !isInteractiveTerminal() {
-		return -1, fmt.Errorf("multiple %ss found (%s); rerun with --%s or use interactive mode", kind, strings.Join(options, ", "), kind)
+		return -1, fmt.Errorf(
+			"multiple %ss found (%s); rerun with --%s <value> (example: --%s %q) or use interactive mode",
+			kind,
+			strings.Join(options, ", "),
+			kind,
+			kind,
+			options[0],
+		)
 	}
 	fmt.Fprintf(os.Stderr, "xctide: multiple %ss found:\n", kind)
 	for i, option := range options {
@@ -2670,6 +2677,25 @@ func renderPlainBuildReport(w io.Writer, cfg buildConfig, events []buildEvent, c
 			fmt.Fprintf(w, "  - %s\n", message)
 		}
 	}
+	if hint := destinationErrorHint(cfg, topErrors); hint != "" {
+		fmt.Fprintf(w, "  hint: %s\n", hint)
+	}
+}
+
+func destinationErrorHint(cfg buildConfig, topErrors []string) string {
+	for _, item := range topErrors {
+		if !strings.Contains(item, "Unable to find a destination matching the provided destination specifier") {
+			continue
+		}
+		args := []string{"xctide", "destinations", "--scheme", cfg.scheme}
+		if cfg.workspacePath != "" {
+			args = append(args, "--workspace", cfg.workspacePath)
+		} else if cfg.projectPath != "" {
+			args = append(args, "--project", cfg.projectPath)
+		}
+		return strings.Join(args, " ")
+	}
+	return ""
 }
 
 func formatDuration(durationMS int64) string {

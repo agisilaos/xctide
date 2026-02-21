@@ -81,9 +81,14 @@ Tests compare generated payloads against these fixtures:
 
 - `TestContractGoldenJSON`
 - `TestContractGoldenNDJSON`
+- `TestContractFixtureLock` (acknowledgement guard)
 
 To intentionally refresh fixtures after a contract change:
 
 ```bash
 UPDATE_GOLDEN=1 go test ./... -run 'TestContractGoldenJSON|TestContractGoldenNDJSON'
+UPDATE_CONTRACT_LOCK=1 go test ./... -run TestContractFixtureLock
 ```
+
+`TestContractFixtureLock` fails when fixture files change without a matching lock update in
+`testdata/contracts/LOCK`. This enforces explicit acknowledgement of contract changes.

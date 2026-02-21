@@ -19,4 +19,4 @@ jobs:
 
       - name: Verify machine output contract tests
         run: |
-          go test ./... -run 'TestContractGoldenJSON|TestContractGoldenNDJSON|TestNDJSONContractRunFinishedIsLastAndUnique|TestBuildEventMarshalRunFinishedIncludesContractFields'
+          go test ./... -run 'TestContractGoldenJSON|TestContractGoldenNDJSON|TestContractFixtureLock|TestNDJSONContractRunFinishedIsLastAndUnique|TestBuildEventMarshalRunFinishedIncludesContractFields'

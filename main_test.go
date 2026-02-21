@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"os/exec"
@@ -708,6 +710,34 @@ func TestContractGoldenNDJSON(t *testing.T) {
 	assertGoldenBytes(t, filepath.Join("testdata", "contracts", "sample.ndjson.golden"), []byte(strings.TrimSpace(buf.String())))
 }
 
+func TestContractFixtureLock(t *testing.T) {
+	files := []string{
+		filepath.Join("testdata", "contracts", "sample.json.golden"),
+		filepath.Join("testdata", "contracts", "sample.ndjson.golden"),
+	}
+	hash, err := computeFilesHash(files)
+	if err != nil {
+		t.Fatalf("computeFilesHash returned error: %v", err)
+	}
+	lockPath := filepath.Join("testdata", "contracts", "LOCK")
+	if os.Getenv("UPDATE_CONTRACT_LOCK") == "1" {
+		if err := os.WriteFile(lockPath, []byte(hash+"\n"), 0o644); err != nil {
+			t.Fatalf("write lock failed: %v", err)
+		}
+	}
+	lockRaw, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatalf("read lock failed: %v", err)
+	}
+	lock := strings.TrimSpace(string(lockRaw))
+	if lock == "" {
+		t.Fatalf("empty lock file: %s", lockPath)
+	}
+	if hash != lock {
+		t.Fatalf("contract fixture lock mismatch\nlock: %s\nhash: %s\nrun: UPDATE_CONTRACT_LOCK=1 go test ./... -run TestContractFixtureLock", lock, hash)
+	}
+}
+
 func TestPlainReportGoldenBuildSuccess(t *testing.T) {
 	cfg := buildConfig{
 		destination: "platform=iOS Simulator,name=iPhone 17 Pro",
@@ -826,4 +856,19 @@ func assertGoldenBytes(t *testing.T, path string, got []byte) {
 	if !bytes.Equal(got, want) {
 		t.Fatalf("golden mismatch for %s\nwant: %s\ngot:  %s", path, string(want), string(got))
 	}
+}
+
+func computeFilesHash(paths []string) (string, error) {
+	h := sha256.New()
+	for _, path := range paths {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			return "", err
+		}
+		_, _ = h.Write([]byte(path))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write(content)
+		_, _ = h.Write([]byte{0})
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }

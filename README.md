@@ -4,6 +4,22 @@ A small TUI wrapper around `xcodebuild` for a cleaner, local build experience.
 
 ## Install
 
+### Homebrew
+
+```bash
+brew tap agisilaos/tap
+brew install xctide
+```
+
+Upgrade:
+
+```bash
+brew update
+brew upgrade xctide
+```
+
+### Local build
+
 ```bash
 go build -o xctide
 ```

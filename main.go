@@ -249,6 +249,10 @@ func main() {
 		cfg.runAfterBuild = true
 	}
 	if commandMode == "xcrun" || commandMode == "xctest" {
+		if commandMode == "xctest" && wantsXctestHelp(args) {
+			printXctestPassthroughHelp(os.Stdout)
+			os.Exit(exitOK)
+		}
 		execName, execArgs, err := passthroughSpec(commandMode, args)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "xctide:", err)
@@ -510,10 +514,41 @@ func passthroughSpec(mode string, args []string) (string, []string, error) {
 		}
 		return "xcrun", cleanArgs, nil
 	case "xctest":
+		if len(cleanArgs) == 0 {
+			return "", nil, errors.New("xctest requires a test bundle path (use `xctide xctest --help` for examples)")
+		}
 		return "xcrun", append([]string{"xctest"}, cleanArgs...), nil
 	default:
 		return "", nil, fmt.Errorf("unsupported passthrough mode %q", mode)
 	}
+}
+
+func wantsXctestHelp(args []string) bool {
+	cleanArgs := args
+	if len(cleanArgs) > 0 && cleanArgs[0] == "--" {
+		cleanArgs = cleanArgs[1:]
+	}
+	if len(cleanArgs) == 0 {
+		return true
+	}
+	if cleanArgs[0] == "-h" || cleanArgs[0] == "--help" || cleanArgs[0] == "help" {
+		return true
+	}
+	return false
+}
+
+func printXctestPassthroughHelp(w io.Writer) {
+	_, _ = fmt.Fprintln(w, "xctide xctest - passthrough to `xcrun xctest`")
+	_, _ = fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "USAGE:")
+	_, _ = fmt.Fprintln(w, "  xctide xctest [xctest args...] <path/to/Tests.xctest>")
+	_, _ = fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "EXAMPLES:")
+	_, _ = fmt.Fprintln(w, "  xctide xctest /path/to/YourTests.xctest")
+	_, _ = fmt.Fprintln(w, "  xctide xctest -XCTest MySuite/testExample /path/to/YourTests.xctest")
+	_, _ = fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "NOTE:")
+	_, _ = fmt.Fprintln(w, "  This command forwards arguments to `xcrun xctest` unchanged.")
 }
 
 func runPassthrough(name string, args []string) int {

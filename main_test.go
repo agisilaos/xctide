@@ -350,6 +350,13 @@ func TestPassthroughSpecXctest(t *testing.T) {
 	}
 }
 
+func TestPassthroughSpecXctestRequiresArgs(t *testing.T) {
+	_, _, err := passthroughSpec("xctest", nil)
+	if err == nil {
+		t.Fatal("expected error when xctest is missing arguments")
+	}
+}
+
 func TestPassthroughSpecStripsLeadingDoubleDash(t *testing.T) {
 	name, args, err := passthroughSpec("xcrun", []string{"--", "simctl", "list"})
 	if err != nil {
@@ -360,6 +367,27 @@ func TestPassthroughSpecStripsLeadingDoubleDash(t *testing.T) {
 	}
 	if len(args) != 2 || args[0] != "simctl" || args[1] != "list" {
 		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+func TestWantsXctestHelp(t *testing.T) {
+	cases := []struct {
+		args []string
+		want bool
+	}{
+		{args: nil, want: true},
+		{args: []string{"-h"}, want: true},
+		{args: []string{"--help"}, want: true},
+		{args: []string{"help"}, want: true},
+		{args: []string{"--", "--help"}, want: true},
+		{args: []string{"/tmp/Tests.xctest"}, want: false},
+		{args: []string{"-XCTest", "Suite/test", "/tmp/Tests.xctest"}, want: false},
+	}
+
+	for _, tc := range cases {
+		if got := wantsXctestHelp(tc.args); got != tc.want {
+			t.Fatalf("wantsXctestHelp(%v) = %v, want %v", tc.args, got, tc.want)
+		}
 	}
 }
 

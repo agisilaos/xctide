@@ -28,3 +28,4 @@ Examples:
 Notes:
 
 - this is an explicit, low-level runner path; no xcodebuild config auto-detection is applied.
+- `xctide xctest --help` prints wrapper-level help/examples to avoid noisy raw tool diagnostics.

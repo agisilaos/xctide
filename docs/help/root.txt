@@ -9,6 +9,7 @@ USAGE:
   xctide destinations [flags] [--json]
   xctide xcrun <args...>
   xctide xctest <args...>
+  xctide completion <bash|zsh|fish>
 
 FLAGS:
   -h, --help            Show this help
@@ -43,6 +44,7 @@ EXAMPLES:
   xctide xcrun simctl list devices available
   xctide xcrun xctrace list templates
   xctide xctest -h
+  xctide completion zsh > ~/.zsh/completions/_xctide
   xctide --plain -- test
   xctide --progress plain -- test
   xctide --progress json -- test

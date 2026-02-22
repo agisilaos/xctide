@@ -33,6 +33,8 @@ func normalizeArgs(raw []string) ([]string, string, error) {
 		return raw[1:], "xcrun", nil
 	case "xctest":
 		return raw[1:], "xctest", nil
+	case "completion":
+		return raw[1:], "completion", nil
 	}
 	return raw, "build", nil
 }
@@ -49,6 +51,7 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  xctide destinations [flags] [--json]")
 	_, _ = fmt.Fprintln(w, "  xctide xcrun <args...>")
 	_, _ = fmt.Fprintln(w, "  xctide xctest <args...>")
+	_, _ = fmt.Fprintln(w, "  xctide completion <bash|zsh|fish>")
 	_, _ = fmt.Fprintln(w, "")
 	_, _ = fmt.Fprintln(w, "FLAGS:")
 	_, _ = fmt.Fprintln(w, "  -h, --help            Show this help")
@@ -83,10 +86,146 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  xctide xcrun simctl list devices available")
 	_, _ = fmt.Fprintln(w, "  xctide xcrun xctrace list templates")
 	_, _ = fmt.Fprintln(w, "  xctide xctest -h")
+	_, _ = fmt.Fprintln(w, "  xctide completion zsh > ~/.zsh/completions/_xctide")
 	_, _ = fmt.Fprintln(w, "  xctide --plain -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress plain -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress json -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress ndjson -- test")
+}
+
+func printCompletionUsage(w io.Writer) {
+	_, _ = fmt.Fprintln(w, "xctide completion - generate shell completion scripts")
+	_, _ = fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "USAGE:")
+	_, _ = fmt.Fprintln(w, "  xctide completion <bash|zsh|fish>")
+	_, _ = fmt.Fprintln(w, "")
+	_, _ = fmt.Fprintln(w, "EXAMPLES:")
+	_, _ = fmt.Fprintln(w, "  xctide completion bash > /usr/local/etc/bash_completion.d/xctide")
+	_, _ = fmt.Fprintln(w, "  xctide completion zsh > ~/.zsh/completions/_xctide")
+	_, _ = fmt.Fprintln(w, "  xctide completion fish > ~/.config/fish/completions/xctide.fish")
+}
+
+func runCompletion(args []string) int {
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
+		printCompletionUsage(os.Stdout)
+		return exitOK
+	}
+	if len(args) != 1 {
+		fmt.Fprintln(os.Stderr, "xctide: completion accepts exactly one shell argument: bash|zsh|fish")
+		return exitInvalidUsage
+	}
+	script, err := completionScript(args[0])
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "xctide:", err)
+		return exitInvalidUsage
+	}
+	fmt.Fprint(os.Stdout, script)
+	return exitOK
+}
+
+func completionScript(shell string) (string, error) {
+	switch strings.ToLower(strings.TrimSpace(shell)) {
+	case "bash":
+		return `# bash completion for xctide
+_xctide_completions() {
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  if [[ $COMP_CWORD -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "build run plan doctor destinations xcrun xctest completion help" -- "$cur") )
+    return 0
+  fi
+
+  if [[ "${COMP_WORDS[1]}" == "completion" ]]; then
+    COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") )
+    return 0
+  fi
+
+  COMPREPLY=( $(compgen -W "--scheme --workspace --project --configuration --destination --platform --simulator-only --device-only --progress --result-bundle --plain --json --quiet --verbose --no-input --no-color --version" -- "$cur") )
+}
+complete -F _xctide_completions xctide
+`, nil
+	case "zsh":
+		return `#compdef xctide
+_xctide() {
+  local -a commands
+  commands=(
+    'build:run xcodebuild wrapper'
+    'run:build and launch app on simulator'
+    'plan:show resolved xcodebuild command'
+    'doctor:validate local environment'
+    'destinations:list available destinations'
+    'xcrun:passthrough to xcrun'
+    'xctest:passthrough to xcrun xctest'
+    'completion:generate shell completions'
+    'help:show usage'
+  )
+
+  if (( CURRENT == 2 )); then
+    _describe 'command' commands
+    return
+  fi
+
+  if [[ ${words[2]} == completion ]]; then
+    _values 'shell' bash zsh fish
+    return
+  fi
+
+  _arguments \
+    '--scheme[Build scheme name]:scheme:' \
+    '--workspace[Path to .xcworkspace]:workspace:_files' \
+    '--project[Path to .xcodeproj]:project:_files' \
+    '--configuration[Build configuration]:configuration:' \
+    '--destination[Build destination]:destination:' \
+    '--platform[Destination filter for destinations command]:platform:' \
+    '--simulator-only[Only simulator destinations]' \
+    '--device-only[Only physical device destinations]' \
+    '--progress[Progress mode]:progress:(auto tui plain json ndjson)' \
+    '--result-bundle[Path to write result bundle]:result-bundle:_files' \
+    '--plain[Disable TUI and stream raw output]' \
+    '--json[Emit JSON summary]' \
+    '--quiet[Pass -quiet to xcodebuild]' \
+    '--verbose[Print wrapper diagnostics]' \
+    '--no-input[Never prompt for selection]' \
+    '--no-color[Disable color output]' \
+    '--version[Print version and exit]'
+}
+_xctide "$@"
+`, nil
+	case "fish":
+		return `# fish completion for xctide
+complete -c xctide -f -n '__fish_use_subcommand' -a build -d 'Run xcodebuild wrapper'
+complete -c xctide -f -n '__fish_use_subcommand' -a run -d 'Build and launch app on simulator'
+complete -c xctide -f -n '__fish_use_subcommand' -a plan -d 'Show resolved xcodebuild command'
+complete -c xctide -f -n '__fish_use_subcommand' -a doctor -d 'Validate local environment'
+complete -c xctide -f -n '__fish_use_subcommand' -a destinations -d 'List available destinations'
+complete -c xctide -f -n '__fish_use_subcommand' -a xcrun -d 'Passthrough to xcrun'
+complete -c xctide -f -n '__fish_use_subcommand' -a xctest -d 'Passthrough to xcrun xctest'
+complete -c xctide -f -n '__fish_use_subcommand' -a completion -d 'Generate shell completions'
+complete -c xctide -f -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'
+complete -c xctide -l scheme -d 'Build scheme name'
+complete -c xctide -l workspace -r -d 'Path to .xcworkspace'
+complete -c xctide -l project -r -d 'Path to .xcodeproj'
+complete -c xctide -l configuration -r -d 'Build configuration'
+complete -c xctide -l destination -r -d 'Build destination'
+complete -c xctide -l platform -r -d 'Destination filter for destinations command'
+complete -c xctide -l simulator-only -d 'Only simulator destinations'
+complete -c xctide -l device-only -d 'Only physical device destinations'
+complete -c xctide -l progress -r -a 'auto tui plain json ndjson' -d 'Progress mode'
+complete -c xctide -l result-bundle -r -d 'Path to write result bundle'
+complete -c xctide -l plain -d 'Disable TUI and stream raw output'
+complete -c xctide -l json -d 'Emit JSON summary'
+complete -c xctide -l quiet -d 'Pass -quiet to xcodebuild'
+complete -c xctide -l verbose -d 'Print wrapper diagnostics'
+complete -c xctide -l no-input -d 'Never prompt for selection'
+complete -c xctide -l no-color -d 'Disable color output'
+complete -c xctide -l version -d 'Print version and exit'
+`, nil
+	default:
+		return "", fmt.Errorf("unsupported shell %q (expected bash|zsh|fish)", shell)
+	}
 }
 
 func listDestinations(cfg buildConfig) ([]destinationOption, error) {

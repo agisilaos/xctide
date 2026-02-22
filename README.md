@@ -24,6 +24,20 @@ brew upgrade xctide
 go build -o xctide
 ```
 
+### Shell completion
+
+```bash
+# bash
+xctide completion bash > /usr/local/etc/bash_completion.d/xctide
+
+# zsh
+mkdir -p ~/.zsh/completions
+xctide completion zsh > ~/.zsh/completions/_xctide
+
+# fish
+xctide completion fish > ~/.config/fish/completions/xctide.fish
+```
+
 ## Usage
 
 ```bash
@@ -36,6 +50,7 @@ xctide destinations --scheme Subsmind
 xctide xcrun simctl list devices available
 xctide xcrun xctrace list templates
 xctide xctest -h
+xctide completion zsh > ~/.zsh/completions/_xctide
 xctide --scheme "Subsmind" --destination "platform=iOS Simulator,name=iPhone 16"
 xctide --plain -- -showBuildSettings
 xctide --progress plain -- test

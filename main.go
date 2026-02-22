@@ -272,6 +272,9 @@ func main() {
 		}
 		os.Exit(runPassthrough(execName, execArgs))
 	}
+	if commandMode == "completion" {
+		os.Exit(runCompletion(args))
+	}
 
 	flagSet := flag.NewFlagSet("xctide", flag.ContinueOnError)
 	flagSet.SetOutput(os.Stderr)

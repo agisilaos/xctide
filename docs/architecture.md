@@ -41,6 +41,14 @@ This document describes the high-level structure of the `xctide` codebase after 
   - TUI rendering helpers and layout composition.
   - Shared view formatting utilities (`renderLines`, duration/progress helpers).
 
+## Test Suite Layout
+
+- `main_test.go`: core runtime/config smoke tests.
+- `cli_surface_behavior_test.go`: CLI argument normalization, passthrough, destinations, and parsing behavior.
+- `contract_golden_test.go`: machine contract and plain-output golden fixtures.
+- `contract_integration_test.go`: end-to-end CLI contract tests with stubbed toolchain.
+- `reporting_test.go`, `completion_test.go`, `cli_registry_test.go`: focused unit coverage for their modules.
+
 ## Why This Split
 
 - Keeps orchestration separate from formatting and parsing concerns.

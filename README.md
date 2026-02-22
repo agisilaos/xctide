@@ -143,3 +143,4 @@ Release readiness checklist: `docs/release-readiness.md`
 - `docs/validation-matrix.md`
 - `docs/release-validation.md`
 - `docs/release-readiness.md`
+- `docs/architecture.md`

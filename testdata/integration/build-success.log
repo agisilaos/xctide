@@ -1,0 +1,7 @@
+warning: sample warning
+CompileC SomeFile.swift
+Ld App
+Build Timing Summary
+Ld (2 tasks) | 0.308 seconds
+CodeSign (1 task) | 0.100 seconds
+** BUILD SUCCEEDED **

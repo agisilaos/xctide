@@ -164,6 +164,7 @@ func (e buildEvent) MarshalJSON() ([]byte, error) {
 	}
 	raw["success"] = e.Success
 	raw["exit_code"] = e.ExitCode
+	raw["duration_ms"] = e.DurationMS
 	return json.Marshal(raw)
 }
 

@@ -41,6 +41,7 @@ EXAMPLES:
   xctide doctor
   xctide destinations --scheme Subsmind
   xctide xcrun simctl list devices available
+  xctide xcrun xctrace list templates
   xctide xctest -h
   xctide --plain -- test
   xctide --progress plain -- test

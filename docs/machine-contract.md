@@ -77,12 +77,22 @@ Contract fixtures are stored in:
 
 - `testdata/contracts/sample.json.golden`
 - `testdata/contracts/sample.ndjson.golden`
+- `testdata/integration/build-success.log`
+- `testdata/integration/build-failure.log`
+- `testdata/integration/plain-success.golden`
 
 Tests compare generated payloads against these fixtures:
 
 - `TestContractGoldenJSON`
 - `TestContractGoldenNDJSON`
 - `TestContractFixtureLock` (acknowledgement guard)
+- `TestCLIJSONContractSuccessIntegration`
+- `TestCLIJSONContractFailureIntegration`
+- `TestCLINDJSONContractIntegration`
+- `TestCLIPlainOutputIntegration`
+
+Integration tests execute the built `xctide` binary with a stubbed toolchain (`xcodebuild`, `xcrun`)
+injected via `PATH`, so contract checks run deterministically without depending on local Xcode state.
 
 To intentionally refresh fixtures after a contract change:
 

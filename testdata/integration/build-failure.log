@@ -1,0 +1,3 @@
+CompileC SomeFile.swift
+error: sample compile error
+** BUILD FAILED **

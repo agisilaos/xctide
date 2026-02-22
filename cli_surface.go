@@ -81,6 +81,7 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  xctide doctor")
 	_, _ = fmt.Fprintln(w, "  xctide destinations --scheme Subsmind")
 	_, _ = fmt.Fprintln(w, "  xctide xcrun simctl list devices available")
+	_, _ = fmt.Fprintln(w, "  xctide xcrun xctrace list templates")
 	_, _ = fmt.Fprintln(w, "  xctide xctest -h")
 	_, _ = fmt.Fprintln(w, "  xctide --plain -- test")
 	_, _ = fmt.Fprintln(w, "  xctide --progress plain -- test")

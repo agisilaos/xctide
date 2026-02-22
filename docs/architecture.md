@@ -10,6 +10,9 @@ This document describes the high-level structure of the `xctide` codebase after 
 - `cli_surface.go`
   - CLI surface and command helpers.
   - Usage/help output, destinations command helpers, passthrough (`xcrun`/`xctest`), doctor/plan helpers.
+- `cli_registry.go`
+  - Central registry for subcommands and flags.
+  - Shared source for usage text and shell-completion candidates.
 - `config_resolve.go`
   - Flag/env/default precedence and progress-mode resolution.
   - Project/workspace/scheme auto-detection and selection prompts.

@@ -13,16 +13,15 @@ USAGE:
 
 FLAGS:
   -h, --help            Show this help
-      --version         Print version and exit
       --scheme string
       --workspace string
       --project string
       --configuration string
       --destination string
-      --platform string  Destination filter for `destinations`
-      --simulator-only   Filter to simulator destinations (`destinations`)
-      --device-only      Filter to physical device destinations (`destinations`)
-      --progress string  Progress mode: auto|tui|plain|json|ndjson
+      --platform string Destination filter for `destinations`
+      --simulator-only  Filter to simulator destinations (`destinations`)
+      --device-only     Filter to physical device destinations (`destinations`)
+      --progress string Progress mode: auto|tui|plain|json|ndjson
       --result-bundle string
       --plain           Disable TUI and stream raw output
       --json            Emit JSON summary to stdout
@@ -30,6 +29,7 @@ FLAGS:
       --verbose         Print wrapper diagnostics to stderr
       --no-input        Never prompt for selection
       --no-color        Disable color output
+      --version         Print version and exit
 
 ENV:
   XCTIDE_SCHEME, XCTIDE_WORKSPACE, XCTIDE_PROJECT, XCTIDE_CONFIGURATION, XCTIDE_DESTINATION, XCTIDE_PROGRESS

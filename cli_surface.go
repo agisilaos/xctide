@@ -19,22 +19,9 @@ func normalizeArgs(raw []string) ([]string, string, error) {
 	case "help":
 		printUsage(os.Stdout)
 		os.Exit(exitOK)
-	case "build":
-		return raw[1:], "build", nil
-	case "run":
-		return raw[1:], "run", nil
-	case "plan":
-		return raw[1:], "plan", nil
-	case "doctor":
-		return raw[1:], "doctor", nil
-	case "destinations":
-		return raw[1:], "destinations", nil
-	case "xcrun":
-		return raw[1:], "xcrun", nil
-	case "xctest":
-		return raw[1:], "xctest", nil
-	case "completion":
-		return raw[1:], "completion", nil
+	}
+	if mode, ok := resolveCommandMode(raw[0]); ok {
+		return raw[1:], mode, nil
 	}
 	return raw, "build", nil
 }
@@ -43,35 +30,14 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "xctide - wrapper around xcodebuild with TUI and machine-friendly modes")
 	_, _ = fmt.Fprintln(w, "")
 	_, _ = fmt.Fprintln(w, "USAGE:")
-	_, _ = fmt.Fprintln(w, "  xctide [flags] [-- <xcodebuild args>]")
-	_, _ = fmt.Fprintln(w, "  xctide build [flags] [-- <xcodebuild args>]")
-	_, _ = fmt.Fprintln(w, "  xctide run [flags] [-- <xcodebuild args>]")
-	_, _ = fmt.Fprintln(w, "  xctide plan [flags] [-- <xcodebuild args>]")
-	_, _ = fmt.Fprintln(w, "  xctide doctor [--json]")
-	_, _ = fmt.Fprintln(w, "  xctide destinations [flags] [--json]")
-	_, _ = fmt.Fprintln(w, "  xctide xcrun <args...>")
-	_, _ = fmt.Fprintln(w, "  xctide xctest <args...>")
-	_, _ = fmt.Fprintln(w, "  xctide completion <bash|zsh|fish>")
+	for _, line := range usageCommandLines() {
+		_, _ = fmt.Fprintln(w, line)
+	}
 	_, _ = fmt.Fprintln(w, "")
 	_, _ = fmt.Fprintln(w, "FLAGS:")
-	_, _ = fmt.Fprintln(w, "  -h, --help            Show this help")
-	_, _ = fmt.Fprintln(w, "      --version         Print version and exit")
-	_, _ = fmt.Fprintln(w, "      --scheme string")
-	_, _ = fmt.Fprintln(w, "      --workspace string")
-	_, _ = fmt.Fprintln(w, "      --project string")
-	_, _ = fmt.Fprintln(w, "      --configuration string")
-	_, _ = fmt.Fprintln(w, "      --destination string")
-	_, _ = fmt.Fprintln(w, "      --platform string  Destination filter for `destinations`")
-	_, _ = fmt.Fprintln(w, "      --simulator-only   Filter to simulator destinations (`destinations`)")
-	_, _ = fmt.Fprintln(w, "      --device-only      Filter to physical device destinations (`destinations`)")
-	_, _ = fmt.Fprintln(w, "      --progress string  Progress mode: auto|tui|plain|json|ndjson")
-	_, _ = fmt.Fprintln(w, "      --result-bundle string")
-	_, _ = fmt.Fprintln(w, "      --plain           Disable TUI and stream raw output")
-	_, _ = fmt.Fprintln(w, "      --json            Emit JSON summary to stdout")
-	_, _ = fmt.Fprintln(w, "      --quiet           Pass -quiet to xcodebuild")
-	_, _ = fmt.Fprintln(w, "      --verbose         Print wrapper diagnostics to stderr")
-	_, _ = fmt.Fprintln(w, "      --no-input        Never prompt for selection")
-	_, _ = fmt.Fprintln(w, "      --no-color        Disable color output")
+	for _, line := range usageFlagLines() {
+		_, _ = fmt.Fprintln(w, line)
+	}
 	_, _ = fmt.Fprintln(w, "")
 	_, _ = fmt.Fprintln(w, "ENV:")
 	_, _ = fmt.Fprintln(w, "  XCTIDE_SCHEME, XCTIDE_WORKSPACE, XCTIDE_PROJECT, XCTIDE_CONFIGURATION, XCTIDE_DESTINATION, XCTIDE_PROGRESS")
@@ -126,7 +92,7 @@ func runCompletion(args []string) int {
 func completionScript(shell string) (string, error) {
 	switch strings.ToLower(strings.TrimSpace(shell)) {
 	case "bash":
-		return `# bash completion for xctide
+		return fmt.Sprintf(`# bash completion for xctide
 _xctide_completions() {
   local cur prev
   COMPREPLY=()
@@ -134,33 +100,25 @@ _xctide_completions() {
   prev="${COMP_WORDS[COMP_CWORD-1]}"
 
   if [[ $COMP_CWORD -eq 1 ]]; then
-    COMPREPLY=( $(compgen -W "build run plan doctor destinations xcrun xctest completion help" -- "$cur") )
+    COMPREPLY=( $(compgen -W "%s" -- "$cur") )
     return 0
   fi
 
   if [[ "${COMP_WORDS[1]}" == "completion" ]]; then
-    COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") )
+    COMPREPLY=( $(compgen -W "%s" -- "$cur") )
     return 0
   fi
 
-  COMPREPLY=( $(compgen -W "--scheme --workspace --project --configuration --destination --platform --simulator-only --device-only --progress --result-bundle --plain --json --quiet --verbose --no-input --no-color --version" -- "$cur") )
+  COMPREPLY=( $(compgen -W "%s" -- "$cur") )
 }
 complete -F _xctide_completions xctide
-`, nil
+`, completionCommandWords(), completionShellWords(), completionFlagWords()), nil
 	case "zsh":
-		return `#compdef xctide
+		return fmt.Sprintf(`#compdef xctide
 _xctide() {
   local -a commands
   commands=(
-    'build:run xcodebuild wrapper'
-    'run:build and launch app on simulator'
-    'plan:show resolved xcodebuild command'
-    'doctor:validate local environment'
-    'destinations:list available destinations'
-    'xcrun:passthrough to xcrun'
-    'xctest:passthrough to xcrun xctest'
-    'completion:generate shell completions'
-    'help:show usage'
+%s
   )
 
   if (( CURRENT == 2 )); then
@@ -169,7 +127,7 @@ _xctide() {
   fi
 
   if [[ ${words[2]} == completion ]]; then
-    _values 'shell' bash zsh fish
+    _values 'shell' %s
     return
   fi
 
@@ -193,36 +151,12 @@ _xctide() {
     '--version[Print version and exit]'
 }
 _xctide "$@"
-`, nil
+`, zshCommandSpecs(), completionShellWords()), nil
 	case "fish":
-		return `# fish completion for xctide
-complete -c xctide -f -n '__fish_use_subcommand' -a build -d 'Run xcodebuild wrapper'
-complete -c xctide -f -n '__fish_use_subcommand' -a run -d 'Build and launch app on simulator'
-complete -c xctide -f -n '__fish_use_subcommand' -a plan -d 'Show resolved xcodebuild command'
-complete -c xctide -f -n '__fish_use_subcommand' -a doctor -d 'Validate local environment'
-complete -c xctide -f -n '__fish_use_subcommand' -a destinations -d 'List available destinations'
-complete -c xctide -f -n '__fish_use_subcommand' -a xcrun -d 'Passthrough to xcrun'
-complete -c xctide -f -n '__fish_use_subcommand' -a xctest -d 'Passthrough to xcrun xctest'
-complete -c xctide -f -n '__fish_use_subcommand' -a completion -d 'Generate shell completions'
-complete -c xctide -f -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'
-complete -c xctide -l scheme -d 'Build scheme name'
-complete -c xctide -l workspace -r -d 'Path to .xcworkspace'
-complete -c xctide -l project -r -d 'Path to .xcodeproj'
-complete -c xctide -l configuration -r -d 'Build configuration'
-complete -c xctide -l destination -r -d 'Build destination'
-complete -c xctide -l platform -r -d 'Destination filter for destinations command'
-complete -c xctide -l simulator-only -d 'Only simulator destinations'
-complete -c xctide -l device-only -d 'Only physical device destinations'
-complete -c xctide -l progress -r -a 'auto tui plain json ndjson' -d 'Progress mode'
-complete -c xctide -l result-bundle -r -d 'Path to write result bundle'
-complete -c xctide -l plain -d 'Disable TUI and stream raw output'
-complete -c xctide -l json -d 'Emit JSON summary'
-complete -c xctide -l quiet -d 'Pass -quiet to xcodebuild'
-complete -c xctide -l verbose -d 'Print wrapper diagnostics'
-complete -c xctide -l no-input -d 'Never prompt for selection'
-complete -c xctide -l no-color -d 'Disable color output'
-complete -c xctide -l version -d 'Print version and exit'
-`, nil
+		return fmt.Sprintf(`# fish completion for xctide
+%s
+%s
+`, fishCommandCompletionLines(), fishFlagCompletionLines()), nil
 	default:
 		return "", fmt.Errorf("unsupported shell %q (expected bash|zsh|fish)", shell)
 	}

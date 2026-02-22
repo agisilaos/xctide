@@ -28,6 +28,9 @@ done
 echo "[docs-check] validating shared docs contract"
 python3 ./scripts/docs-contract-check.py
 
+echo "[docs-check] checking CLI help snapshots"
+./scripts/check-help.sh
+
 for target in release-check release-dry-run release; do
   if ! grep -qE "^${target}:" Makefile; then
     err "Makefile missing target: $target"

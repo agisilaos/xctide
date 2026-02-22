@@ -1,4 +1,7 @@
-.PHONY: docs-check release-check release-dry-run release
+.PHONY: check-help docs-check release-check release-dry-run release
+
+check-help:
+	./scripts/check-help.sh
 
 docs-check:
 	./scripts/docs-check.sh

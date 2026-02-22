@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -436,80 +435,4 @@ func parseAvailableSimulatorCount(data []byte) (int, error) {
 		}
 	}
 	return count, nil
-}
-
-func visitedFlags(flagSet *flag.FlagSet) map[string]bool {
-	seen := make(map[string]bool)
-	flagSet.Visit(func(f *flag.Flag) {
-		seen[f.Name] = true
-	})
-	return seen
-}
-
-func applyEnvDefaults(cfg *buildConfig, seen map[string]bool) {
-	if !seen["scheme"] {
-		cfg.scheme = firstNonEmpty(cfg.scheme, os.Getenv("XCTIDE_SCHEME"))
-	}
-	if !seen["workspace"] {
-		cfg.workspacePath = firstNonEmpty(cfg.workspacePath, os.Getenv("XCTIDE_WORKSPACE"))
-	}
-	if !seen["project"] {
-		cfg.projectPath = firstNonEmpty(cfg.projectPath, os.Getenv("XCTIDE_PROJECT"))
-	}
-	if !seen["configuration"] {
-		cfg.configuration = firstNonEmpty(cfg.configuration, os.Getenv("XCTIDE_CONFIGURATION"))
-	}
-	if !seen["destination"] {
-		cfg.destination = firstNonEmpty(cfg.destination, os.Getenv("XCTIDE_DESTINATION"))
-	}
-	if !seen["progress"] {
-		cfg.progress = firstNonEmpty(cfg.progress, os.Getenv("XCTIDE_PROGRESS"))
-	}
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return value
-		}
-	}
-	return ""
-}
-
-func resolveProgressMode(cfg buildConfig, seen map[string]bool, hasTTY bool) (string, error) {
-	if seen["progress"] && (seen["plain"] || seen["json"]) {
-		return "", errors.New("use either --progress or --plain/--json, not both")
-	}
-	if seen["progress"] {
-		switch cfg.progress {
-		case "auto":
-			if hasTTY {
-				return "tui", nil
-			}
-			return "plain", nil
-		case "tui":
-			if !hasTTY {
-				return "", errors.New("--progress=tui requires a TTY")
-			}
-			return "tui", nil
-		case "plain":
-			return "plain", nil
-		case "json":
-			return "json", nil
-		case "ndjson":
-			return "ndjson", nil
-		default:
-			return "", fmt.Errorf("invalid --progress value %q (expected auto|tui|plain|json|ndjson)", cfg.progress)
-		}
-	}
-	if cfg.jsonOutput {
-		return "json", nil
-	}
-	if cfg.plain {
-		return "raw", nil
-	}
-	if hasTTY {
-		return "tui", nil
-	}
-	return "plain", nil
 }

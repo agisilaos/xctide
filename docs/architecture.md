@@ -5,13 +5,18 @@ This document describes the high-level structure of the `xctide` codebase after 
 ## Module Map
 
 - `main.go`
-  - Runtime orchestration and command execution flow.
-  - Bubble Tea model/update/view plumbing.
-  - Build process wiring (`runJSONBuild`, `runNDJSONBuild`, `runProgressPlainBuild`, raw/TUI mode dispatch).
+  - Runtime orchestration and command dispatch.
+  - Top-level model/session types and shared build/runtime constants.
 - `cli_surface.go`
   - CLI surface and command helpers.
   - Usage/help output, destinations command helpers, passthrough (`xcrun`/`xctest`), doctor/plan helpers.
-  - Env default resolution and progress mode normalization.
+- `config_resolve.go`
+  - Flag/env/default precedence and progress-mode resolution.
+  - Project/workspace/scheme auto-detection and selection prompts.
+  - Terminal detection and `xcodebuild -list` JSON decoding helpers.
+- `build_modes.go`
+  - Build execution paths (`raw`, `plain`, `json`, `ndjson`).
+  - Event stream finalization and mode-specific output assembly.
 - `event_tracker.go`
   - Build event stream state machine (`run_started`, `step_started`, `step_finished`, diagnostics, `run_finished`).
   - Step transition/duration tracking and summary stats accumulation.
@@ -22,6 +27,16 @@ This document describes the high-level structure of the `xctide` codebase after 
 - `reporting.go`
   - Human-readable plain report rendering.
   - Timeline helpers, top error extraction, duration formatting, and timing summary parsing.
+- `simulator_run.go`
+  - Simulator/device destination parsing helpers.
+  - Post-build simulator boot/install/launch pipeline.
+  - Build settings extraction for run mode.
+- `tui_model.go`
+  - Bubble Tea model state transitions and event application.
+  - Per-phase/test/file target capture helpers.
+- `tui_view.go`
+  - TUI rendering helpers and layout composition.
+  - Shared view formatting utilities (`renderLines`, duration/progress helpers).
 
 ## Why This Split
 

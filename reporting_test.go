@@ -25,7 +25,12 @@ func TestPhaseTimelineFromEvents(t *testing.T) {
 }
 
 func TestDestinationErrorHintIncludesProject(t *testing.T) {
-	cfg := buildConfig{scheme: "Subsmind", projectPath: "Subsmind.xcodeproj"}
+	cfg := buildConfig{
+		projectOptions: projectOptions{
+			scheme:      "Subsmind",
+			projectPath: "Subsmind.xcodeproj",
+		},
+	}
 	topErrors := []string{"Unable to find a destination matching the provided destination specifier"}
 	hint := buildFailureHint(cfg, topErrors)
 	if !strings.Contains(hint, "xctide destinations --scheme Subsmind") {
@@ -48,9 +53,15 @@ func TestFormatDuration(t *testing.T) {
 func TestRenderPlainBuildReportShowsCoreSections(t *testing.T) {
 	var buf bytes.Buffer
 	cfg := buildConfig{
-		scheme:      "Subsmind",
-		destination: "platform=iOS Simulator,name=iPhone 17 Pro",
-		details:     true,
+		projectOptions: projectOptions{
+			scheme: "Subsmind",
+		},
+		destinationOptions: destinationOptions{
+			destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+		},
+		outputOptions: outputOptions{
+			details: true,
+		},
 	}
 	events := []buildEvent{{Type: eventDiagnostic, Level: "error", Message: "sample error"}}
 	completed := []completedItem{{Name: "Subsmind", DurationMS: 4000}}
@@ -79,8 +90,12 @@ func TestRenderPlainBuildReportShowsCoreSections(t *testing.T) {
 func TestRenderPlainBuildReportCompactDefault(t *testing.T) {
 	var buf bytes.Buffer
 	cfg := buildConfig{
-		scheme:      "Subsmind",
-		destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+		projectOptions: projectOptions{
+			scheme: "Subsmind",
+		},
+		destinationOptions: destinationOptions{
+			destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+		},
 	}
 	events := []buildEvent{{Type: eventDiagnostic, Level: "error", Message: "sample error"}}
 	completed := []completedItem{{Name: "Subsmind", DurationMS: 4000}}
@@ -101,7 +116,7 @@ func TestRenderPlainBuildReportCompactDefault(t *testing.T) {
 }
 
 func TestBuildFailureHintCompileError(t *testing.T) {
-	cfg := buildConfig{scheme: "Subsmind"}
+	cfg := buildConfig{projectOptions: projectOptions{scheme: "Subsmind"}}
 	topErrors := []string{"/tmp/File.swift:12:5: error: expected expression"}
 	hint := buildFailureHint(cfg, topErrors)
 	if !strings.Contains(hint, "fix the first compiler error") {
@@ -110,7 +125,7 @@ func TestBuildFailureHintCompileError(t *testing.T) {
 }
 
 func TestBuildFailureHintMissingProjectPath(t *testing.T) {
-	cfg := buildConfig{scheme: "Subsmind"}
+	cfg := buildConfig{projectOptions: projectOptions{scheme: "Subsmind"}}
 	topErrors := []string{"xcodebuild: error: 'Subsmind.xcodeproj' does not exist."}
 	hint := buildFailureHint(cfg, topErrors)
 	if !strings.Contains(hint, "project root") {

@@ -17,11 +17,14 @@ const (
 	exitInterrupted    = 130
 )
 
-type buildConfig struct {
+type projectOptions struct {
 	projectPath   string
 	workspacePath string
 	scheme        string
 	configuration string
+}
+
+type destinationOptions struct {
 	destination   string
 	platform      string
 	simulatorOnly bool
@@ -30,8 +33,10 @@ type buildConfig struct {
 	destOS        string
 	destLimit     int
 	destLatest    bool
+}
+
+type outputOptions struct {
 	progress      string
-	extraArgs     []string
 	resultBundle  string
 	useQuiet      bool
 	verbose       bool
@@ -41,6 +46,13 @@ type buildConfig struct {
 	noInput       bool
 	runAfterBuild bool
 	timingSummary bool
+}
+
+type buildConfig struct {
+	projectOptions
+	destinationOptions
+	outputOptions
+	extraArgs []string
 }
 
 type buildStats struct {

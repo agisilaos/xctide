@@ -13,6 +13,7 @@ This document describes the high-level structure of the `xctide` codebase after 
 - `contracts_types.go`
   - Shared domain types and machine-contract structures.
   - Exit/version constants and event/build payload definitions.
+  - Structured config groups (`projectOptions`, `destinationOptions`, `outputOptions`) embedded in `buildConfig`.
 - `cli_surface.go`
   - CLI surface and command helpers.
   - Usage/help output, destinations command helpers, passthrough (`xcrun`/`xctest`), doctor/plan helpers.

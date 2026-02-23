@@ -149,11 +149,15 @@ func TestTopErrorsFromEvents(t *testing.T) {
 
 func TestBuildPlanResult(t *testing.T) {
 	cfg := buildConfig{
-		workspacePath: "Subsmind.xcworkspace",
-		scheme:        "Subsmind",
-		configuration: "Debug",
-		destination:   "platform=iOS Simulator,id=ABC",
-		extraArgs:     []string{"build"},
+		projectOptions: projectOptions{
+			workspacePath: "Subsmind.xcworkspace",
+			scheme:        "Subsmind",
+			configuration: "Debug",
+		},
+		destinationOptions: destinationOptions{
+			destination: "platform=iOS Simulator,id=ABC",
+		},
+		extraArgs: []string{"build"},
 	}
 	result := buildPlanResult(cfg, "plan")
 	if result.Mode != "plan" {
@@ -312,8 +316,10 @@ func TestTargetTimingTrackerFallsBackToContextSpans(t *testing.T) {
 
 func TestDependencyTargetRows(t *testing.T) {
 	cfg := buildConfig{
-		projectPath: "/tmp/Subsmind.xcodeproj",
-		scheme:      "Subsmind",
+		projectOptions: projectOptions{
+			projectPath: "/tmp/Subsmind.xcodeproj",
+			scheme:      "Subsmind",
+		},
 	}
 	rows := []buildTargetTiming{
 		{name: "Subsmind", project: "Subsmind", duration: 2 * time.Second},

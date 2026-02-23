@@ -268,7 +268,9 @@ func TestContractFixtureLock(t *testing.T) {
 
 func TestPlainReportGoldenBuildSuccess(t *testing.T) {
 	cfg := buildConfig{
-		destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+		destinationOptions: destinationOptions{
+			destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+		},
 	}
 	events := []buildEvent{
 		{Type: eventRunStarted, At: time.Date(2026, 2, 21, 10, 0, 0, 0, time.UTC)},
@@ -287,9 +289,13 @@ func TestPlainReportGoldenBuildSuccess(t *testing.T) {
 
 func TestPlainReportGoldenBuildFailure(t *testing.T) {
 	cfg := buildConfig{
-		projectPath: "Subsmind.xcodeproj",
-		scheme:      "Subsmind",
-		destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+		projectOptions: projectOptions{
+			projectPath: "Subsmind.xcodeproj",
+			scheme:      "Subsmind",
+		},
+		destinationOptions: destinationOptions{
+			destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+		},
 	}
 	events := []buildEvent{
 		{Type: eventDiagnostic, Level: "error", Message: "xcodebuild: error: Unable to find a destination matching the provided destination specifier:"},
@@ -305,8 +311,12 @@ func TestPlainReportGoldenBuildFailure(t *testing.T) {
 
 func TestPlainReportGoldenRunSuccess(t *testing.T) {
 	cfg := buildConfig{
-		runAfterBuild: true,
-		destination:   "platform=iOS Simulator,name=iPhone 17 Pro",
+		outputOptions: outputOptions{
+			runAfterBuild: true,
+		},
+		destinationOptions: destinationOptions{
+			destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+		},
 	}
 	events := []buildEvent{
 		{Type: eventRunStarted, At: time.Date(2026, 2, 21, 10, 0, 0, 0, time.UTC)},
@@ -328,8 +338,10 @@ func TestPlainReportGoldenRunSuccess(t *testing.T) {
 
 func TestDestinationErrorHint(t *testing.T) {
 	cfg := buildConfig{
-		projectPath: "Subsmind.xcodeproj",
-		scheme:      "Subsmind",
+		projectOptions: projectOptions{
+			projectPath: "Subsmind.xcodeproj",
+			scheme:      "Subsmind",
+		},
 	}
 	errors := []string{"xcodebuild: error: Unable to find a destination matching the provided destination specifier:"}
 	hint := destinationErrorHint(cfg, errors)

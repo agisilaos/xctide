@@ -106,7 +106,7 @@ func TestEventTrackerFailureFlow(t *testing.T) {
 }
 
 func TestResolveProgressMode(t *testing.T) {
-	cfg := buildConfig{progress: "auto"}
+	cfg := buildConfig{outputOptions: outputOptions{progress: "auto"}}
 	mode, err := resolveProgressMode(cfg, map[string]bool{}, false)
 	if err != nil {
 		t.Fatalf("resolveProgressMode auto returned error: %v", err)
@@ -115,19 +115,19 @@ func TestResolveProgressMode(t *testing.T) {
 		t.Fatalf("mode = %q, want plain", mode)
 	}
 
-	cfg = buildConfig{progress: "tui"}
+	cfg = buildConfig{outputOptions: outputOptions{progress: "tui"}}
 	_, err = resolveProgressMode(cfg, map[string]bool{"progress": true}, false)
 	if err == nil {
 		t.Fatal("expected error for --progress=tui without TTY")
 	}
 
-	cfg = buildConfig{progress: "plain", plain: true}
+	cfg = buildConfig{outputOptions: outputOptions{progress: "plain", plain: true}}
 	_, err = resolveProgressMode(cfg, map[string]bool{"progress": true, "plain": true}, true)
 	if err == nil {
 		t.Fatal("expected conflict error for --progress with --plain")
 	}
 
-	cfg = buildConfig{progress: "ndjson"}
+	cfg = buildConfig{outputOptions: outputOptions{progress: "ndjson"}}
 	mode, err = resolveProgressMode(cfg, map[string]bool{"progress": true}, false)
 	if err != nil {
 		t.Fatalf("resolveProgressMode ndjson returned error: %v", err)

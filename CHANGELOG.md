@@ -1,5 +1,9 @@
 # Changelog
 
+## [v0.2.2] - 2026-02-23
+- Enforced release policy that the top `CHANGELOG.md` entry must match the requested release version.
+- Updated release documentation entries to keep `v0.2.0` and `v0.2.1` notes explicit and consistent.
+
 ## [v0.2.1] - 2026-02-23
 - Fixed release/version metadata wiring so `--version` is reliably injected via ldflags in release builds.
 - Added release checks that assert injected `--version` matches the target tag.

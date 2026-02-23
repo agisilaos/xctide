@@ -1,5 +1,15 @@
 # Changelog
 
+## [v0.2.1] - 2026-02-23
+- Fixed release/version metadata wiring so `--version` is reliably injected via ldflags in release builds.
+- Added release checks that assert injected `--version` matches the target tag.
+
+## [v0.2.0] - 2026-02-23
+- Added `diagnose` build preflight support with surfaced environment snapshots.
+- Added machine-output contract improvements, including explicit `schema_version` and event sequencing metadata.
+- Improved destination-selection UX and plain-mode guidance for CLI runs.
+- Continued internal command/runtime refactors with expanded parser, integration, and mode-combination test coverage.
+
 ## [v0.1.2] - 2026-02-22
 - Add shell completion subcommand for `bash`, `zsh`, and `fish`.
 - Add explicit `xcrun`/`xctest` passthrough docs and integration coverage (including `xctrace`).

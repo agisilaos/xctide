@@ -57,6 +57,7 @@ This document describes the high-level structure of the `xctide` codebase after 
 - `cli_surface_behavior_test.go`: CLI argument normalization, passthrough, destinations, and parsing behavior.
 - `cli_parse_table_test.go`: table-driven normalization and progress-mode flag combination coverage.
 - `cli_snapshot_test.go`: CLI surface snapshots for root help and completion scripts.
+- `cli_registry_contract_test.go`: registry consistency checks ensuring usage/help/completion surfaces stay synchronized with `cliCommands`/`cliFlags`.
 - `contract_golden_test.go`: machine contract and plain-output golden fixtures.
 - `contract_integration_test.go`: end-to-end CLI contract tests with stubbed toolchain (json/ndjson/plain, completion output, passthrough fidelity, doctor warn/fail paths).
 - `reporting_test.go`, `completion_test.go`, `cli_registry_test.go`: focused unit coverage for their modules.

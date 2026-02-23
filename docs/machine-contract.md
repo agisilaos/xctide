@@ -90,6 +90,10 @@ Tests compare generated payloads against these fixtures:
 - `TestCLIJSONContractFailureIntegration`
 - `TestCLINDJSONContractIntegration`
 - `TestCLIPlainOutputIntegration`
+- `TestCLICompletionIntegrationZsh`
+- `TestCLIXcrunPassthroughArgumentFidelityIntegration`
+- `TestCLIDoctorWarnIntegration`
+- `TestCLIDoctorFailIntegration`
 
 Integration tests execute the built `xctide` binary with a stubbed toolchain (`xcodebuild`, `xcrun`)
 injected via `PATH`, so contract checks run deterministically without depending on local Xcode state.

@@ -49,7 +49,7 @@ This document describes the high-level structure of the `xctide` codebase after 
 - `main_test.go`: core runtime/config smoke tests.
 - `cli_surface_behavior_test.go`: CLI argument normalization, passthrough, destinations, and parsing behavior.
 - `contract_golden_test.go`: machine contract and plain-output golden fixtures.
-- `contract_integration_test.go`: end-to-end CLI contract tests with stubbed toolchain.
+- `contract_integration_test.go`: end-to-end CLI contract tests with stubbed toolchain (json/ndjson/plain, completion output, passthrough fidelity, doctor warn/fail paths).
 - `reporting_test.go`, `completion_test.go`, `cli_registry_test.go`: focused unit coverage for their modules.
 
 ## Why This Split

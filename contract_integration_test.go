@@ -184,6 +184,133 @@ func TestCLIPlainOutputIntegration(t *testing.T) {
 	assertGoldenBytes(t, filepath.Join("testdata", "integration", "plain-success.golden"), []byte(normalized))
 }
 
+func TestCLICompletionIntegrationZsh(t *testing.T) {
+	bin := buildCLIBinaryForIntegration(t)
+	stdout, stderr, exitCode := runCLIIntegration(
+		t,
+		bin,
+		"",
+		"success",
+		"completion", "zsh",
+	)
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got: %s", stderr)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	if !strings.Contains(stdout, "#compdef xctide") {
+		t.Fatalf("missing zsh compdef header: %q", stdout)
+	}
+	if !strings.Contains(stdout, "xcrun:passthrough to xcrun") {
+		t.Fatalf("missing xcrun command completion entry: %q", stdout)
+	}
+}
+
+func TestCLIXcrunPassthroughArgumentFidelityIntegration(t *testing.T) {
+	bin := buildCLIBinaryForIntegration(t)
+	toolBin := writeStubToolchain(t)
+	stdout, stderr, exitCode := runCLIIntegrationWithOptions(
+		t,
+		bin,
+		toolBin,
+		"success",
+		"",
+		[]string{"XCTIDE_XCRUN_STUB_ECHO_ARGS=1"},
+		"xcrun", "--", "simctl", "list", "devices", "available",
+	)
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got: %s", stderr)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	lines := strings.Split(strings.TrimSpace(stdout), "\n")
+	want := []string{"simctl", "list", "devices", "available"}
+	if len(lines) != len(want) {
+		t.Fatalf("stdout lines = %#v, want %#v", lines, want)
+	}
+	for i := range want {
+		if lines[i] != want[i] {
+			t.Fatalf("arg[%d] = %q, want %q", i, lines[i], want[i])
+		}
+	}
+}
+
+func TestCLIDoctorWarnIntegration(t *testing.T) {
+	bin := buildCLIBinaryForIntegration(t)
+	toolBin := writeStubToolchain(t)
+	cwd := t.TempDir()
+	stdout, stderr, exitCode := runCLIIntegrationWithOptions(
+		t,
+		bin,
+		toolBin,
+		"success",
+		cwd,
+		nil,
+		"doctor", "--json",
+	)
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got: %s", stderr)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+
+	var result doctorResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid doctor json output: %v\n%s", err, stdout)
+	}
+	if !result.Success {
+		t.Fatalf("doctor success = false, want true; payload=%s", stdout)
+	}
+	warnCount := 0
+	for _, check := range result.Checks {
+		if check.Status == "warn" {
+			warnCount++
+		}
+	}
+	if warnCount == 0 {
+		t.Fatalf("expected at least one warn check, got %#v", result.Checks)
+	}
+}
+
+func TestCLIDoctorFailIntegration(t *testing.T) {
+	bin := buildCLIBinaryForIntegration(t)
+	toolBin := writeBrokenXcrunToolchain(t)
+	stdout, stderr, exitCode := runCLIIntegration(
+		t,
+		bin,
+		toolBin,
+		"success",
+		"doctor", "--json",
+	)
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got: %s", stderr)
+	}
+	if exitCode != exitRuntimeFailure {
+		t.Fatalf("exit code = %d, want %d; stdout=%s stderr=%s", exitCode, exitRuntimeFailure, stdout, stderr)
+	}
+
+	var result doctorResult
+	if err := json.Unmarshal([]byte(stdout), &result); err != nil {
+		t.Fatalf("invalid doctor json output: %v\n%s", err, stdout)
+	}
+	if result.Success {
+		t.Fatalf("doctor success = true, want false; payload=%s", stdout)
+	}
+	hasFailedCheck := false
+	for _, check := range result.Checks {
+		if check.Status == "fail" {
+			hasFailedCheck = true
+			break
+		}
+	}
+	if !hasFailedCheck {
+		t.Fatalf("expected at least one failing check, got %#v", result.Checks)
+	}
+}
+
 func normalizePlainIntegrationOutput(raw string) string {
 	out := strings.TrimSpace(raw)
 	reSuccess := regexp.MustCompile(`• Build Succeeded [^\n]+`)
@@ -251,6 +378,10 @@ exit 0
 
 	xcrun := `#!/usr/bin/env bash
 set -euo pipefail
+if [[ "${XCTIDE_XCRUN_STUB_ECHO_ARGS:-}" == "1" ]]; then
+  printf '%s\n' "$@"
+  exit 0
+fi
 if [[ "${1:-}" == "--version" ]]; then
   echo "xcrun version 1"
   exit 0
@@ -274,18 +405,37 @@ exit 0
 
 func runCLIIntegration(t *testing.T, bin string, toolBin string, scenario string, args ...string) (stdout string, stderr string, exitCode int) {
 	t.Helper()
+	return runCLIIntegrationWithOptions(t, bin, toolBin, scenario, "", nil, args...)
+}
+
+func runCLIIntegrationWithOptions(
+	t *testing.T,
+	bin string,
+	toolBin string,
+	scenario string,
+	workingDir string,
+	extraEnv []string,
+	args ...string,
+) (stdout string, stderr string, exitCode int) {
+	t.Helper()
 	cmd := exec.Command(bin, args...)
 	var outBuf strings.Builder
 	var errBuf strings.Builder
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
+	if workingDir != "" {
+		cmd.Dir = workingDir
+	}
 
 	env := append([]string{}, os.Environ()...)
-	env = append(env,
-		fmt.Sprintf("PATH=%s:%s", toolBin, os.Getenv("PATH")),
-		fmt.Sprintf("XCTIDE_TESTDATA_DIR=%s", filepath.Join("testdata", "integration")),
-		fmt.Sprintf("XCTIDE_TEST_SCENARIO=%s", scenario),
-	)
+	if toolBin != "" {
+		env = append(env, fmt.Sprintf("PATH=%s:%s", toolBin, os.Getenv("PATH")))
+	}
+	if scenario != "" {
+		env = append(env, fmt.Sprintf("XCTIDE_TEST_SCENARIO=%s", scenario))
+	}
+	env = append(env, fmt.Sprintf("XCTIDE_TESTDATA_DIR=%s", filepath.Join("testdata", "integration")))
+	env = append(env, extraEnv...)
 	cmd.Env = env
 
 	err := cmd.Run()
@@ -297,4 +447,41 @@ func runCLIIntegration(t *testing.T, bin string, toolBin string, scenario string
 		t.Fatalf("run command failed: %v", err)
 	}
 	return outBuf.String(), errBuf.String(), 0
+}
+
+func writeBrokenXcrunToolchain(t *testing.T) string {
+	t.Helper()
+	binDir := filepath.Join(t.TempDir(), "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatalf("mkdir bin dir failed: %v", err)
+	}
+
+	xcodebuild := `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "-version" ]]; then
+  echo "Xcode 26.0"
+  exit 0
+fi
+if [[ "${1:-}" == "-list" ]]; then
+  cat <<'OUT'
+{"project":{"schemes":["Subsmind"]}}
+OUT
+  exit 0
+fi
+exit 0
+`
+	if err := os.WriteFile(filepath.Join(binDir, "xcodebuild"), []byte(xcodebuild), 0o755); err != nil {
+		t.Fatalf("write xcodebuild stub failed: %v", err)
+	}
+
+	xcrun := `#!/usr/bin/env bash
+set -euo pipefail
+echo "xcrun unavailable in test stub" >&2
+exit 2
+`
+	if err := os.WriteFile(filepath.Join(binDir, "xcrun"), []byte(xcrun), 0o755); err != nil {
+		t.Fatalf("write xcrun stub failed: %v", err)
+	}
+
+	return binDir
 }

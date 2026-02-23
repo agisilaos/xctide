@@ -4,6 +4,7 @@ USAGE:
   xctide [flags] [-- <xcodebuild args>]
   xctide build [flags] [-- <xcodebuild args>]
   xctide run [flags] [-- <xcodebuild args>]
+  xctide diagnose build [flags] [-- <xcodebuild args>]
   xctide plan [flags] [-- <xcodebuild args>]
   xctide doctor [--json]
   xctide destinations [flags] [--json]
@@ -43,6 +44,7 @@ EXAMPLES:
   xctide
   xctide build --scheme Subsmind --destination "platform=iOS Simulator,name=iPhone 16"
   xctide run --scheme Subsmind --destination "platform=iOS Simulator,id=<UDID>"
+  xctide diagnose build --scheme Subsmind
   xctide plan --scheme Subsmind -- test
   xctide doctor
   xctide destinations --scheme Subsmind

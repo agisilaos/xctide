@@ -1,0 +1,20 @@
+# bash completion for xctide
+_xctide_completions() {
+  local cur prev
+  COMPREPLY=()
+  cur="${COMP_WORDS[COMP_CWORD]}"
+  prev="${COMP_WORDS[COMP_CWORD-1]}"
+
+  if [[ $COMP_CWORD -eq 1 ]]; then
+    COMPREPLY=( $(compgen -W "build run diagnose plan doctor destinations xcrun xctest completion help" -- "$cur") )
+    return 0
+  fi
+
+  if [[ "${COMP_WORDS[1]}" == "completion" ]]; then
+    COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") )
+    return 0
+  fi
+
+  COMPREPLY=( $(compgen -W "--scheme --workspace --project --configuration --destination --platform --name --os --limit --latest --simulator-only --device-only --progress --result-bundle --details --plain --json --quiet --verbose --no-input --no-color --version" -- "$cur") )
+}
+complete -F _xctide_completions xctide

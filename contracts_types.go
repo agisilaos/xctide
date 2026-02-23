@@ -73,6 +73,14 @@ type planResult struct {
 	XcodebuildCmd []string `json:"xcodebuild_command"`
 }
 
+type diagnoseBuildResult struct {
+	Ready     bool         `json:"ready"`
+	Doctor    doctorResult `json:"doctor"`
+	Plan      *planResult  `json:"plan,omitempty"`
+	Issues    []string     `json:"issues,omitempty"`
+	NextSteps []string     `json:"next_steps,omitempty"`
+}
+
 type destinationOption struct {
 	Platform string `json:"platform,omitempty"`
 	Arch     string `json:"arch,omitempty"`

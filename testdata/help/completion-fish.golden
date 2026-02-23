@@ -1,0 +1,33 @@
+# fish completion for xctide
+complete -c xctide -f -n '__fish_use_subcommand' -a build -d 'run xcodebuild wrapper'
+complete -c xctide -f -n '__fish_use_subcommand' -a run -d 'build and launch app on simulator'
+complete -c xctide -f -n '__fish_use_subcommand' -a diagnose -d 'preflight doctor + plan for build'
+complete -c xctide -f -n '__fish_use_subcommand' -a plan -d 'show resolved xcodebuild command'
+complete -c xctide -f -n '__fish_use_subcommand' -a doctor -d 'validate local environment'
+complete -c xctide -f -n '__fish_use_subcommand' -a destinations -d 'list available destinations'
+complete -c xctide -f -n '__fish_use_subcommand' -a xcrun -d 'passthrough to xcrun'
+complete -c xctide -f -n '__fish_use_subcommand' -a xctest -d 'passthrough to xcrun xctest'
+complete -c xctide -f -n '__fish_use_subcommand' -a completion -d 'generate shell completions'
+complete -c xctide -f -n '__fish_seen_subcommand_from completion' -a 'bash zsh fish'
+complete -c xctide -l scheme -r
+complete -c xctide -l workspace -r
+complete -c xctide -l project -r
+complete -c xctide -l configuration -r
+complete -c xctide -l destination -r
+complete -c xctide -l platform -r -d 'Destination filter for `destinations`'
+complete -c xctide -l name -r -d 'Destination name contains filter for `destinations`'
+complete -c xctide -l os -r -d 'Destination OS contains filter for `destinations`'
+complete -c xctide -l limit -r -d 'Max destinations to return (`destinations`)'
+complete -c xctide -l latest -d 'Keep latest OS per destination name (`destinations`)'
+complete -c xctide -l simulator-only -d 'Filter to simulator destinations (`destinations`)'
+complete -c xctide -l device-only -d 'Filter to physical device destinations (`destinations`)'
+complete -c xctide -l progress -r -a 'auto tui plain json ndjson' -d 'Progress mode: auto|tui|plain|json|ndjson'
+complete -c xctide -l result-bundle -r
+complete -c xctide -l details -d 'Expanded plain output sections'
+complete -c xctide -l plain -d 'Disable TUI and stream raw output'
+complete -c xctide -l json -d 'Emit JSON summary to stdout'
+complete -c xctide -l quiet -d 'Pass -quiet to xcodebuild'
+complete -c xctide -l verbose -d 'Print wrapper diagnostics to stderr'
+complete -c xctide -l no-input -d 'Never prompt for selection'
+complete -c xctide -l no-color -d 'Disable color output'
+complete -c xctide -l version -d 'Print version and exit'

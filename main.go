@@ -137,6 +137,22 @@ func main() {
 		os.Exit(exitRuntimeFailure)
 	}
 
+	if commandMode == "diagnose_build" {
+		result := runDiagnoseBuild(cfg)
+		if cfg.jsonOutput {
+			if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
+				fmt.Fprintln(os.Stderr, "xctide:", err)
+				os.Exit(exitRuntimeFailure)
+			}
+		} else {
+			renderDiagnoseBuildResult(os.Stdout, result)
+		}
+		if result.Ready {
+			os.Exit(exitOK)
+		}
+		os.Exit(exitRuntimeFailure)
+	}
+
 	if commandMode == "plan" {
 		if err := autoDetectConfig(&cfg); err != nil {
 			fmt.Fprintln(os.Stderr, "xctide:", err)

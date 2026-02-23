@@ -44,6 +44,7 @@ xctide completion fish > ~/.config/fish/completions/xctide.fish
 xctide
 xctide build
 xctide run --destination "platform=iOS Simulator,id=<UDID>"
+xctide diagnose build --scheme Subsmind
 xctide plan --scheme Subsmind -- test
 xctide doctor
 xctide destinations --scheme Subsmind
@@ -87,6 +88,7 @@ xctide --json -- test
 
 - `build`: default behavior, runs `xcodebuild` with resolved config.
 - `run`: build then launch app on simulator (requires simulator `id=` destination).
+- `diagnose build`: run doctor + config resolution + command preview to check build readiness.
 - `plan`: resolve config and print exact `xcodebuild` command without executing.
 - `doctor`: validate local build prerequisites (`xcodebuild`, `xcrun`, simulators, project context).
 - `destinations`: list valid `xcodebuild` destinations for the resolved scheme.
@@ -123,6 +125,7 @@ Precedence: flags > env > auto-detect/defaults.
 - Compact plain summaries include a short preview of slow dependency targets when available.
 - `xctide run` performs build + simulator launch + install + app launch (requires simulator destination with `id=`).
 - Preflight docs for `doctor` and `plan`: `docs/doctor-and-plan.md`.
+- Build readiness preflight docs: `docs/diagnose.md`.
 - Tool passthrough docs for `xcrun`/`xctest` and `xctrace` usage: `docs/tooling-passthrough.md`.
 - Destination discovery docs: `docs/destinations.md`.
 - Real-machine validation matrix notes: `docs/validation-matrix.md`.
@@ -164,6 +167,7 @@ Release readiness checklist: `docs/release-readiness.md`
 ## Docs
 
 - `docs/doctor-and-plan.md`
+- `docs/diagnose.md`
 - `docs/tooling-passthrough.md`
 - `docs/destinations.md`
 - `docs/validation-matrix.md`

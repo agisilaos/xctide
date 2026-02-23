@@ -19,6 +19,33 @@ func TestNormalizeArgsRunMode(t *testing.T) {
 	}
 }
 
+func TestNormalizeArgsDiagnoseBuildMode(t *testing.T) {
+	args, mode, err := normalizeArgs([]string{"diagnose", "build", "--scheme", "Subsmind"})
+	if err != nil {
+		t.Fatalf("normalizeArgs returned error: %v", err)
+	}
+	if mode != "diagnose_build" {
+		t.Fatalf("mode = %q, want diagnose_build", mode)
+	}
+	if len(args) != 2 || args[0] != "--scheme" || args[1] != "Subsmind" {
+		t.Fatalf("unexpected args: %#v", args)
+	}
+}
+
+func TestNormalizeArgsDiagnoseMissingSubcommand(t *testing.T) {
+	_, _, err := normalizeArgs([]string{"diagnose"})
+	if err == nil {
+		t.Fatal("expected error for missing diagnose subcommand")
+	}
+}
+
+func TestNormalizeArgsDiagnoseUnsupportedSubcommand(t *testing.T) {
+	_, _, err := normalizeArgs([]string{"diagnose", "test"})
+	if err == nil {
+		t.Fatal("expected error for unsupported diagnose subcommand")
+	}
+}
+
 func TestNormalizeArgsPlanMode(t *testing.T) {
 	args, mode, err := normalizeArgs([]string{"plan", "--scheme", "Subsmind"})
 	if err != nil {

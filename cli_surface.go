@@ -16,6 +16,15 @@ func normalizeArgs(raw []string) ([]string, string, error) {
 	if len(raw) == 0 {
 		return raw, "build", nil
 	}
+	if raw[0] == "diagnose" {
+		if len(raw) < 2 {
+			return nil, "", errors.New("diagnose requires a subcommand (supported: build)")
+		}
+		if raw[1] != "build" {
+			return nil, "", fmt.Errorf("unsupported diagnose subcommand %q (expected build)", raw[1])
+		}
+		return raw[2:], "diagnose_build", nil
+	}
 	switch raw[0] {
 	case "help":
 		printUsage(os.Stdout)
@@ -47,6 +56,7 @@ func printUsage(w io.Writer) {
 	_, _ = fmt.Fprintln(w, "  xctide")
 	_, _ = fmt.Fprintln(w, "  xctide build --scheme Subsmind --destination \"platform=iOS Simulator,name=iPhone 16\"")
 	_, _ = fmt.Fprintln(w, "  xctide run --scheme Subsmind --destination \"platform=iOS Simulator,id=<UDID>\"")
+	_, _ = fmt.Fprintln(w, "  xctide diagnose build --scheme Subsmind")
 	_, _ = fmt.Fprintln(w, "  xctide plan --scheme Subsmind -- test")
 	_, _ = fmt.Fprintln(w, "  xctide doctor")
 	_, _ = fmt.Fprintln(w, "  xctide destinations --scheme Subsmind")
@@ -508,6 +518,80 @@ func renderPlanResult(w io.Writer, result planResult) {
 		fmt.Fprintln(w, "")
 		fmt.Fprintln(w, "• Post Build")
 		fmt.Fprintln(w, "  run_after_build enabled (simulator boot/install/launch)")
+	}
+}
+
+func runDiagnoseBuild(cfg buildConfig) diagnoseBuildResult {
+	result := diagnoseBuildResult{
+		Doctor: runDoctor(cfg),
+	}
+
+	if err := autoDetectConfig(&cfg); err != nil {
+		result.Issues = append(result.Issues, err.Error())
+		result.NextSteps = append(result.NextSteps, "Provide --project/--workspace and --scheme explicitly, then rerun `xctide diagnose build`.")
+		result.Ready = false
+		return result
+	}
+
+	plan := buildPlanResult(cfg, "diagnose_build")
+	result.Plan = &plan
+	if result.Doctor.Success {
+		result.Ready = true
+		result.NextSteps = append(result.NextSteps, fmt.Sprintf("Run `%s`", strings.Join(plan.XcodebuildCmd, " ")))
+		return result
+	}
+
+	result.Ready = false
+	for _, check := range result.Doctor.Checks {
+		if check.Status == "fail" {
+			result.Issues = append(result.Issues, fmt.Sprintf("%s: %s", check.Name, check.Details))
+			if check.Hint != "" {
+				result.NextSteps = append(result.NextSteps, check.Hint)
+			}
+		}
+	}
+	return result
+}
+
+func renderDiagnoseBuildResult(w io.Writer, result diagnoseBuildResult) {
+	fmt.Fprintln(w, "• Diagnose Build")
+	if result.Ready {
+		fmt.Fprintln(w, "  status ready")
+	} else {
+		fmt.Fprintln(w, "  status not_ready")
+	}
+	passCount := 0
+	warnCount := 0
+	failCount := 0
+	for _, check := range result.Doctor.Checks {
+		switch check.Status {
+		case "pass":
+			passCount++
+		case "warn":
+			warnCount++
+		case "fail":
+			failCount++
+		}
+	}
+	fmt.Fprintf(w, "  doctor pass:%d warn:%d fail:%d\n", passCount, warnCount, failCount)
+	if result.Plan != nil {
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "• Plan")
+		fmt.Fprintf(w, "  %s\n", strings.Join(result.Plan.XcodebuildCmd, " "))
+	}
+	if len(result.Issues) > 0 {
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "• Issues")
+		for _, issue := range result.Issues {
+			fmt.Fprintf(w, "  - %s\n", issue)
+		}
+	}
+	if len(result.NextSteps) > 0 {
+		fmt.Fprintln(w, "")
+		fmt.Fprintln(w, "• Next Steps")
+		for _, step := range result.NextSteps {
+			fmt.Fprintf(w, "  - %s\n", step)
+		}
 	}
 }
 

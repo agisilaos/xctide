@@ -21,6 +21,7 @@ type cliFlag struct {
 var cliCommands = []cliCommand{
 	{Name: "build", Mode: "build", UsageSuffix: " [flags] [-- <xcodebuild args>]", Summary: "run xcodebuild wrapper"},
 	{Name: "run", Mode: "run", UsageSuffix: " [flags] [-- <xcodebuild args>]", Summary: "build and launch app on simulator"},
+	{Name: "diagnose", Mode: "diagnose_build", UsageSuffix: " build [flags] [-- <xcodebuild args>]", Summary: "preflight doctor + plan for build"},
 	{Name: "plan", Mode: "plan", UsageSuffix: " [flags] [-- <xcodebuild args>]", Summary: "show resolved xcodebuild command"},
 	{Name: "doctor", Mode: "doctor", UsageSuffix: " [--json]", Summary: "validate local environment"},
 	{Name: "destinations", Mode: "destinations", UsageSuffix: " [flags] [--json]", Summary: "list available destinations"},

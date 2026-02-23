@@ -199,6 +199,65 @@ func TestCLIPlainOutputIntegration(t *testing.T) {
 	assertGoldenBytes(t, filepath.Join("testdata", "integration", "plain-success.golden"), []byte(normalized))
 }
 
+func TestCLIDiagnoseBuildJSONReadyIntegration(t *testing.T) {
+	bin := buildCLIBinaryForIntegration(t)
+	toolBin := writeStubToolchain(t)
+	stdout, stderr, exitCode := runCLIIntegration(
+		t,
+		bin,
+		toolBin,
+		"success",
+		"diagnose", "build", "--json",
+		"--project", "Stub.xcodeproj",
+		"--scheme", "Subsmind",
+		"--configuration", "Debug",
+		"--destination", "platform=iOS Simulator,name=iPhone 17 Pro",
+	)
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got: %s", stderr)
+	}
+	if exitCode != 0 {
+		t.Fatalf("exit code = %d, want 0; stdout=%s stderr=%s", exitCode, stdout, stderr)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("invalid json output: %v\n%s", err, stdout)
+	}
+	if ready, _ := payload["ready"].(bool); !ready {
+		t.Fatalf("ready = %#v, want true", payload["ready"])
+	}
+	if _, ok := payload["plan"].(map[string]any); !ok {
+		t.Fatalf("expected plan object, got %#v", payload["plan"])
+	}
+}
+
+func TestCLIDiagnoseBuildJSONFailIntegration(t *testing.T) {
+	bin := buildCLIBinaryForIntegration(t)
+	toolBin := writeBrokenXcrunToolchain(t)
+	stdout, stderr, exitCode := runCLIIntegration(
+		t,
+		bin,
+		toolBin,
+		"success",
+		"diagnose", "build", "--json",
+		"--project", "Stub.xcodeproj",
+		"--scheme", "Subsmind",
+	)
+	if stderr != "" {
+		t.Fatalf("expected empty stderr, got: %s", stderr)
+	}
+	if exitCode != exitRuntimeFailure {
+		t.Fatalf("exit code = %d, want %d; stdout=%s stderr=%s", exitCode, exitRuntimeFailure, stdout, stderr)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("invalid json output: %v\n%s", err, stdout)
+	}
+	if ready, _ := payload["ready"].(bool); ready {
+		t.Fatalf("ready = %#v, want false", payload["ready"])
+	}
+}
+
 func TestCLICompletionIntegrationZsh(t *testing.T) {
 	bin := buildCLIBinaryForIntegration(t)
 	stdout, stderr, exitCode := runCLIIntegration(

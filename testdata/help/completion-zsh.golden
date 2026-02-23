@@ -1,0 +1,51 @@
+#compdef xctide
+_xctide() {
+  local -a commands
+  commands=(
+    'build:run xcodebuild wrapper'
+    'run:build and launch app on simulator'
+    'diagnose:preflight doctor + plan for build'
+    'plan:show resolved xcodebuild command'
+    'doctor:validate local environment'
+    'destinations:list available destinations'
+    'xcrun:passthrough to xcrun'
+    'xctest:passthrough to xcrun xctest'
+    'completion:generate shell completions'
+    'help:show usage'
+  )
+
+  if (( CURRENT == 2 )); then
+    _describe 'command' commands
+    return
+  fi
+
+  if [[ ${words[2]} == completion ]]; then
+    _values 'shell' bash zsh fish
+    return
+  fi
+
+  _arguments \
+    '--scheme[Build scheme name]:scheme:' \
+    '--workspace[Path to .xcworkspace]:workspace:_files' \
+    '--project[Path to .xcodeproj]:project:_files' \
+    '--configuration[Build configuration]:configuration:' \
+    '--destination[Build destination]:destination:' \
+    '--platform[Destination filter for destinations command]:platform:' \
+    '--name[Destination name contains filter for destinations]:name:' \
+    '--os[Destination OS contains filter for destinations]:os:' \
+    '--limit[Max destinations to return]:limit:' \
+    '--latest[Keep latest OS per destination name]' \
+    '--simulator-only[Only simulator destinations]' \
+    '--device-only[Only physical device destinations]' \
+    '--progress[Progress mode]:progress:(auto tui plain json ndjson)' \
+    '--result-bundle[Path to write result bundle]:result-bundle:_files' \
+    '--details[Expanded plain output sections]' \
+    '--plain[Disable TUI and stream raw output]' \
+    '--json[Emit JSON summary]' \
+    '--quiet[Pass -quiet to xcodebuild]' \
+    '--verbose[Print wrapper diagnostics]' \
+    '--no-input[Never prompt for selection]' \
+    '--no-color[Disable color output]' \
+    '--version[Print version and exit]'
+}
+_xctide "$@"

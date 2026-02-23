@@ -7,6 +7,9 @@ This document describes the high-level structure of the `xctide` codebase after 
 - `main.go`
   - Runtime orchestration and command dispatch.
   - Top-level model/session types and shared build/runtime constants.
+- `commands.go`
+  - Command-mode handlers for `doctor`, `diagnose build`, `plan`, and `destinations`.
+  - Shared stdout/stderr + exit-code wiring for command subflows.
 - `contracts_types.go`
   - Shared domain types and machine-contract structures.
   - Exit/version constants and event/build payload definitions.

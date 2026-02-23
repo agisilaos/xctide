@@ -121,80 +121,8 @@ func main() {
 		return
 	}
 
-	if commandMode == "doctor" {
-		result := runDoctor(cfg)
-		if cfg.jsonOutput {
-			if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
-				fmt.Fprintln(os.Stderr, "xctide:", err)
-				os.Exit(exitRuntimeFailure)
-			}
-		} else {
-			renderDoctorResult(os.Stdout, result)
-		}
-		if result.Success {
-			os.Exit(exitOK)
-		}
-		os.Exit(exitRuntimeFailure)
-	}
-
-	if commandMode == "diagnose_build" {
-		result := runDiagnoseBuild(cfg)
-		if cfg.jsonOutput {
-			if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
-				fmt.Fprintln(os.Stderr, "xctide:", err)
-				os.Exit(exitRuntimeFailure)
-			}
-		} else {
-			renderDiagnoseBuildResult(os.Stdout, result)
-		}
-		if result.Ready {
-			os.Exit(exitOK)
-		}
-		os.Exit(exitRuntimeFailure)
-	}
-
-	if commandMode == "plan" {
-		if err := autoDetectConfig(&cfg); err != nil {
-			fmt.Fprintln(os.Stderr, "xctide:", err)
-			os.Exit(exitConfigFailure)
-		}
-		result := buildPlanResult(cfg, commandMode)
-		if cfg.jsonOutput {
-			if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
-				fmt.Fprintln(os.Stderr, "xctide:", err)
-				os.Exit(exitRuntimeFailure)
-			}
-		} else {
-			renderPlanResult(os.Stdout, result)
-		}
-		os.Exit(exitOK)
-	}
-
-	if commandMode == "destinations" {
-		if err := autoDetectConfig(&cfg); err != nil {
-			fmt.Fprintln(os.Stderr, "xctide:", err)
-			os.Exit(exitConfigFailure)
-		}
-		options, err := listDestinations(cfg)
-		if err != nil {
-			fmt.Fprintln(os.Stderr, "xctide:", err)
-			os.Exit(exitRuntimeFailure)
-		}
-		result := destinationsResult{
-			Project:      cfg.projectPath,
-			Workspace:    cfg.workspacePath,
-			Scheme:       cfg.scheme,
-			Destinations: options,
-		}
-		if cfg.jsonOutput {
-			if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
-				fmt.Fprintln(os.Stderr, "xctide:", err)
-				os.Exit(exitRuntimeFailure)
-			}
-		} else {
-			renderDestinationsResult(os.Stdout, result, cfg)
-		}
-		os.Exit(exitOK)
+	if handled, code := handleCommandMode(commandMode, &cfg); handled {
+		os.Exit(code)
 	}
 
 	mode, err := resolveProgressMode(cfg, seen, isTerminal())

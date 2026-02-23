@@ -20,16 +20,25 @@ func topErrorsFromEvents(events []buildEvent, limit int) []string {
 			continue
 		}
 		msg := strings.TrimSpace(event.Message)
-		if msg == "" || seen[msg] {
+		key := normalizeErrorMessageKey(msg)
+		if key == "" || seen[key] {
 			continue
 		}
-		seen[msg] = true
+		seen[key] = true
 		out = append(out, msg)
 		if len(out) >= limit {
 			break
 		}
 	}
 	return out
+}
+
+func normalizeErrorMessageKey(message string) string {
+	trimmed := strings.TrimSpace(message)
+	if trimmed == "" {
+		return ""
+	}
+	return strings.ToLower(strings.Join(strings.Fields(trimmed), " "))
 }
 
 func completedFromTimingRows(rows []completedItem) []completedItem {

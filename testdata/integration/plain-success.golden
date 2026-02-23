@@ -1,4 +1,6 @@
-xctide $ xctide build Stub.xcodeproj Subsmind Debug
+• Invocation
+  Mode build
+  Resolved xcodebuild -project Stub.xcodeproj -scheme Subsmind -configuration Debug -destination platform=iOS Simulator,name=iPhone 17 Pro build -showBuildTimingSummary
 
 • Run Destination
   Simulator iPhone 17 Pro

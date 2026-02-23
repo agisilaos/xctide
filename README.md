@@ -112,6 +112,7 @@ Precedence: flags > env > auto-detect/defaults.
 
 - Pass additional `xcodebuild` args after `--`.
 - When stdout/stderr is not a TTY, `xctide` automatically falls back to plain output.
+- Plain progress mode starts with an `Invocation` block that shows the resolved `xcodebuild` command.
 - `xctide run` performs build + simulator launch + install + app launch (requires simulator destination with `id=`).
 - Preflight docs for `doctor` and `plan`: `docs/doctor-and-plan.md`.
 - Tool passthrough docs for `xcrun`/`xctest` and `xctrace` usage: `docs/tooling-passthrough.md`.

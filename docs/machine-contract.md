@@ -49,6 +49,11 @@ Optional fields:
 - `task_count` on `completed_item`
 - `top_errors` on `diagnostic_summary` and `run_finished`
 
+Notes:
+
+- `completed_item.duration_ms` is always emitted, including `0`, so consumers can rely on the key.
+- `top_errors` entries are normalized for deduplication (trimmed + case-insensitive comparison) while preserving first-seen wording.
+
 ## Ordering Guarantees (`--progress ndjson`)
 
 - Events are emitted in process order as observed during execution.

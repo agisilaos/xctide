@@ -138,7 +138,7 @@ func (e buildEvent) MarshalJSON() ([]byte, error) {
 	}
 
 	// run_finished is the contract anchor event for machines; always include
-	// success/exit_code even when values are false/0 so consumers can rely on keys.
+	// success/exit_code/duration_ms so consumers can rely on keys.
 	if e.Type != eventRunFinished {
 		return encoded, nil
 	}

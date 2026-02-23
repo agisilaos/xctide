@@ -84,6 +84,31 @@ func TestBuildEventMarshalRunFinishedIncludesContractFields(t *testing.T) {
 	}
 }
 
+func TestEncodeNDJSONEventCompletedItemIncludesZeroDuration(t *testing.T) {
+	event := buildEvent{
+		Type:      eventCompleted,
+		At:        time.Unix(10, 0),
+		Message:   "CompileXCStrings",
+		TaskCount: 1,
+	}
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	if err := encodeNDJSONEvent(enc, event); err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	data := bytes.TrimSpace(buf.Bytes())
+	if len(data) == 0 {
+		t.Fatal("expected encoded payload")
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal failed: %v", err)
+	}
+	if _, ok := payload["duration_ms"]; !ok {
+		t.Fatal("completed_item must include duration_ms even when zero")
+	}
+}
+
 func TestNDJSONContractRunFinishedIsLastAndUnique(t *testing.T) {
 	start := time.Unix(100, 0)
 	tracker := newEventTracker()
@@ -115,7 +140,7 @@ func TestNDJSONContractRunFinishedIsLastAndUnique(t *testing.T) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	for _, event := range stream {
-		if err := enc.Encode(event); err != nil {
+		if err := encodeNDJSONEvent(enc, event); err != nil {
 			t.Fatalf("encode failed: %v", err)
 		}
 	}
@@ -203,7 +228,7 @@ func TestContractGoldenNDJSON(t *testing.T) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
 	for _, event := range events {
-		if err := enc.Encode(event); err != nil {
+		if err := encodeNDJSONEvent(enc, event); err != nil {
 			t.Fatalf("encode failed: %v", err)
 		}
 	}

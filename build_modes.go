@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -40,6 +39,23 @@ type jsonTargetTiming struct {
 	Name       string `json:"name"`
 	Project    string `json:"project,omitempty"`
 	DurationMS int64  `json:"duration_ms"`
+}
+
+type ndjsonCompletedEvent struct {
+	Type       eventType   `json:"type"`
+	At         time.Time   `json:"at"`
+	Message    string      `json:"message,omitempty"`
+	TaskCount  int         `json:"task_count,omitempty"`
+	DurationMS int64       `json:"duration_ms"`
+	StepName   string      `json:"step_name,omitempty"`
+	StepIndex  int         `json:"step_index,omitempty"`
+	StepTotal  int         `json:"step_total,omitempty"`
+	StepStatus string      `json:"step_status,omitempty"`
+	Level      string      `json:"level,omitempty"`
+	TopErrors  []string    `json:"top_errors,omitempty"`
+	ExitCode   int         `json:"exit_code,omitempty"`
+	Success    bool        `json:"success,omitempty"`
+	Stats      *buildStats `json:"stats,omitempty"`
 }
 
 func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
@@ -145,6 +161,29 @@ func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
 	return result, nil
 }
 
+func encodeNDJSONEvent(encoder *json.Encoder, event buildEvent) error {
+	if event.Type != eventCompleted {
+		return encoder.Encode(event)
+	}
+	payload := ndjsonCompletedEvent{
+		Type:       event.Type,
+		At:         event.At,
+		Message:    event.Message,
+		TaskCount:  event.TaskCount,
+		DurationMS: event.DurationMS,
+		StepName:   event.StepName,
+		StepIndex:  event.StepIndex,
+		StepTotal:  event.StepTotal,
+		StepStatus: event.StepStatus,
+		Level:      event.Level,
+		TopErrors:  event.TopErrors,
+		ExitCode:   event.ExitCode,
+		Success:    event.Success,
+		Stats:      event.Stats,
+	}
+	return encoder.Encode(payload)
+}
+
 func runNDJSONBuild(cfg buildConfig) (int, error) {
 	streamStart := time.Now()
 	args := buildArgs(cfg)
@@ -178,7 +217,7 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 	for line := range lines {
 		events := tracker.processLine(line, time.Now())
 		for _, event := range events {
-			if err := encoder.Encode(event); err != nil {
+			if err := encodeNDJSONEvent(encoder, event); err != nil {
 				return exitRuntimeFailure, err
 			}
 		}
@@ -204,7 +243,7 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 	waitErr := cmd.Wait()
 	finishEvents, provisionalRunFinished := splitRunFinishedEvent(tracker.finish(waitErr, time.Now()))
 	for _, event := range finishEvents {
-		if err := encoder.Encode(event); err != nil {
+		if err := encodeNDJSONEvent(encoder, event); err != nil {
 			return exitRuntimeFailure, err
 		}
 	}
@@ -226,7 +265,7 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 		Stats:     &tracker.stats,
 		TopErrors: topErrorsFromEvents(tracker.events, 5),
 	}
-	if err := encoder.Encode(summary); err != nil {
+	if err := encodeNDJSONEvent(encoder, summary); err != nil {
 		return exitRuntimeFailure, err
 	}
 
@@ -239,12 +278,12 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 				Message:    row.name,
 				DurationMS: row.duration.Milliseconds(),
 			}
-			if err := encoder.Encode(event); err != nil {
+			if err := encodeNDJSONEvent(encoder, event); err != nil {
 				return exitRuntimeFailure, err
 			}
 		}
 		if runErr != nil {
-			if err := encoder.Encode(buildEvent{
+			if err := encodeNDJSONEvent(encoder, buildEvent{
 				Type:    eventActionFail,
 				At:      time.Now(),
 				Level:   "error",
@@ -261,7 +300,7 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 		final.At = provisionalRunFinished.At
 		final.DurationMS = provisionalRunFinished.DurationMS
 	}
-	if err := encoder.Encode(final); err != nil {
+	if err := encodeNDJSONEvent(encoder, final); err != nil {
 		return exitRuntimeFailure, err
 	}
 	return classifyBuildErr(waitErr), nil
@@ -331,7 +370,10 @@ func runProgressPlainBuild(cfg buildConfig) error {
 	if cfg.runAfterBuild {
 		commandLabel = "run"
 	}
-	fmt.Fprintf(os.Stdout, "xctide $ xctide %s %s %s %s\n\n", commandLabel, filepath.Base(firstNonEmpty(cfg.workspacePath, cfg.projectPath)), cfg.scheme, cfg.configuration)
+	resolved := append([]string{"xcodebuild"}, args...)
+	fmt.Fprintln(os.Stdout, "• Invocation")
+	fmt.Fprintf(os.Stdout, "  Mode %s\n", commandLabel)
+	fmt.Fprintf(os.Stdout, "  Resolved %s\n\n", strings.Join(resolved, " "))
 
 	for line := range lines {
 		now := time.Now()

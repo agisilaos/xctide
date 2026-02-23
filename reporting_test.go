@@ -74,3 +74,22 @@ func TestRenderPlainBuildReportShowsCoreSections(t *testing.T) {
 		}
 	}
 }
+
+func TestTopErrorsFromEventsNormalizesDuplicateMessages(t *testing.T) {
+	events := []buildEvent{
+		{Type: eventDiagnostic, Level: "error", Message: "  Foo   BAR  "},
+		{Type: eventDiagnostic, Level: "error", Message: "foo bar"},
+		{Type: eventDiagnostic, Level: "error", Message: "FOO BAR"},
+		{Type: eventDiagnostic, Level: "error", Message: "another error"},
+	}
+	top := topErrorsFromEvents(events, 5)
+	if len(top) != 2 {
+		t.Fatalf("len(top) = %d, want 2; top=%#v", len(top), top)
+	}
+	if top[0] != "Foo   BAR" {
+		t.Fatalf("top[0] = %q, want %q", top[0], "Foo   BAR")
+	}
+	if top[1] != "another error" {
+		t.Fatalf("top[1] = %q, want %q", top[1], "another error")
+	}
+}

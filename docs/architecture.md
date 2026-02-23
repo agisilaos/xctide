@@ -7,6 +7,9 @@ This document describes the high-level structure of the `xctide` codebase after 
 - `main.go`
   - Runtime orchestration and command dispatch.
   - Top-level model/session types and shared build/runtime constants.
+- `contracts_types.go`
+  - Shared domain types and machine-contract structures.
+  - Exit/version constants and event/build payload definitions.
 - `cli_surface.go`
   - CLI surface and command helpers.
   - Usage/help output, destinations command helpers, passthrough (`xcrun`/`xctest`), doctor/plan helpers.

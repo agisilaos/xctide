@@ -27,7 +27,7 @@ func TestPhaseTimelineFromEvents(t *testing.T) {
 func TestDestinationErrorHintIncludesProject(t *testing.T) {
 	cfg := buildConfig{scheme: "Subsmind", projectPath: "Subsmind.xcodeproj"}
 	topErrors := []string{"Unable to find a destination matching the provided destination specifier"}
-	hint := destinationErrorHint(cfg, topErrors)
+	hint := buildFailureHint(cfg, topErrors)
 	if !strings.Contains(hint, "xctide destinations --scheme Subsmind") {
 		t.Fatalf("unexpected hint: %q", hint)
 	}
@@ -50,6 +50,7 @@ func TestRenderPlainBuildReportShowsCoreSections(t *testing.T) {
 	cfg := buildConfig{
 		scheme:      "Subsmind",
 		destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+		details:     true,
 	}
 	events := []buildEvent{{Type: eventDiagnostic, Level: "error", Message: "sample error"}}
 	completed := []completedItem{{Name: "Subsmind", DurationMS: 4000}}
@@ -72,6 +73,48 @@ func TestRenderPlainBuildReportShowsCoreSections(t *testing.T) {
 		if !strings.Contains(out, token) {
 			t.Fatalf("expected %q in report output:\n%s", token, out)
 		}
+	}
+}
+
+func TestRenderPlainBuildReportCompactDefault(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := buildConfig{
+		scheme:      "Subsmind",
+		destination: "platform=iOS Simulator,name=iPhone 17 Pro",
+	}
+	events := []buildEvent{{Type: eventDiagnostic, Level: "error", Message: "sample error"}}
+	completed := []completedItem{{Name: "Subsmind", DurationMS: 4000}}
+	dependencies := []buildTargetTiming{{name: "Markdown", project: "swift-markdown", duration: 2 * time.Second}}
+	stats := buildStats{warnings: 1, errors: 1}
+	renderPlainBuildReport(&buf, cfg, events, completed, dependencies, nil, stats, 5*time.Second, errors.New("boom"))
+
+	out := buf.String()
+	if !strings.Contains(out, "• Summary") {
+		t.Fatalf("expected compact summary section, got:\n%s", out)
+	}
+	if strings.Contains(out, "• Completed") {
+		t.Fatalf("did not expect detailed completed section in compact mode:\n%s", out)
+	}
+	if !strings.Contains(out, "slow dependencies:1") || !strings.Contains(out, "Markdown (swift-markdown)") {
+		t.Fatalf("expected compact dependency preview, got:\n%s", out)
+	}
+}
+
+func TestBuildFailureHintCompileError(t *testing.T) {
+	cfg := buildConfig{scheme: "Subsmind"}
+	topErrors := []string{"/tmp/File.swift:12:5: error: expected expression"}
+	hint := buildFailureHint(cfg, topErrors)
+	if !strings.Contains(hint, "fix the first compiler error") {
+		t.Fatalf("unexpected hint: %q", hint)
+	}
+}
+
+func TestBuildFailureHintMissingProjectPath(t *testing.T) {
+	cfg := buildConfig{scheme: "Subsmind"}
+	topErrors := []string{"xcodebuild: error: 'Subsmind.xcodeproj' does not exist."}
+	hint := buildFailureHint(cfg, topErrors)
+	if !strings.Contains(hint, "project root") {
+		t.Fatalf("unexpected hint: %q", hint)
 	}
 }
 

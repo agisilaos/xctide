@@ -329,7 +329,7 @@ func TestFilterDestinations(t *testing.T) {
 		{Platform: "tvOS Simulator", Name: "Apple TV"},
 	}
 
-	simOnly := filterDestinations(options, "", true, false)
+	simOnly := filterDestinations(options, "", "", "", true, false, false)
 	if len(simOnly) != 2 {
 		t.Fatalf("len(simOnly) = %d, want 2", len(simOnly))
 	}
@@ -339,14 +339,45 @@ func TestFilterDestinations(t *testing.T) {
 		}
 	}
 
-	deviceOnly := filterDestinations(options, "", false, true)
+	deviceOnly := filterDestinations(options, "", "", "", false, true, false)
 	if len(deviceOnly) != 1 || deviceOnly[0].Platform != "iOS" {
 		t.Fatalf("unexpected deviceOnly result: %#v", deviceOnly)
 	}
 
-	platformOnly := filterDestinations(options, "iOS Simulator", false, false)
+	platformOnly := filterDestinations(options, "iOS Simulator", "", "", false, false, false)
 	if len(platformOnly) != 1 || platformOnly[0].Name != "iPhone 17 Pro" {
 		t.Fatalf("unexpected platformOnly result: %#v", platformOnly)
+	}
+}
+
+func TestFilterDestinationsNameOSLatest(t *testing.T) {
+	options := []destinationOption{
+		{Platform: "iOS Simulator", Name: "iPhone 17 Pro", OS: "26.1"},
+		{Platform: "iOS Simulator", Name: "iPhone 17 Pro", OS: "26.2"},
+		{Platform: "iOS Simulator", Name: "iPhone 17", OS: "26.2"},
+		{Platform: "iOS", Name: "Agis iPhone"},
+	}
+	filtered := filterDestinations(options, "iOS Simulator", "iPhone 17 Pro", "26", false, false, true)
+	if len(filtered) != 1 {
+		t.Fatalf("len(filtered) = %d, want 1", len(filtered))
+	}
+	if filtered[0].Name != "iPhone 17 Pro" || filtered[0].OS != "26.2" {
+		t.Fatalf("unexpected filtered result: %#v", filtered[0])
+	}
+}
+
+func TestLimitDestinations(t *testing.T) {
+	options := []destinationOption{
+		{Name: "A"},
+		{Name: "B"},
+		{Name: "C"},
+	}
+	limited := limitDestinations(options, 2)
+	if len(limited) != 2 {
+		t.Fatalf("len(limited) = %d, want 2", len(limited))
+	}
+	if limited[0].Name != "A" || limited[1].Name != "B" {
+		t.Fatalf("unexpected limited result: %#v", limited)
 	}
 }
 

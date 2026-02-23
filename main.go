@@ -76,10 +76,15 @@ func main() {
 	flagSet.StringVar(&cfg.configuration, "configuration", "", "Build configuration (default: Debug)")
 	flagSet.StringVar(&cfg.destination, "destination", "", "Destination (e.g. 'platform=iOS Simulator,name=iPhone 16')")
 	flagSet.StringVar(&cfg.platform, "platform", "", "Destination filter for `destinations` (e.g. 'iOS Simulator' or 'iOS')")
+	flagSet.StringVar(&cfg.destName, "name", "", "Destination name contains filter (for `destinations`)")
+	flagSet.StringVar(&cfg.destOS, "os", "", "Destination OS contains filter (for `destinations`)")
+	flagSet.IntVar(&cfg.destLimit, "limit", 0, "Max destinations to return (for `destinations`)")
+	flagSet.BoolVar(&cfg.destLatest, "latest", false, "Keep latest OS per destination name (for `destinations`)")
 	flagSet.BoolVar(&cfg.simulatorOnly, "simulator-only", false, "Only simulator destinations (for `destinations`)")
 	flagSet.BoolVar(&cfg.deviceOnly, "device-only", false, "Only physical device destinations (for `destinations`)")
 	flagSet.StringVar(&cfg.progress, "progress", "auto", "Progress mode: auto|tui|plain|json|ndjson")
 	flagSet.StringVar(&cfg.resultBundle, "result-bundle", "", "Path to write result bundle")
+	flagSet.BoolVar(&cfg.details, "details", false, "Expanded plain output sections")
 	flagSet.BoolVar(&cfg.useQuiet, "quiet", false, "Pass -quiet to xcodebuild")
 	flagSet.BoolVar(&cfg.verbose, "verbose", false, "Print wrapper diagnostics to stderr")
 	flagSet.BoolVar(&cfg.plain, "plain", false, "Disable TUI and stream raw build output")
@@ -99,6 +104,10 @@ func main() {
 	}
 	if cfg.simulatorOnly && cfg.deviceOnly {
 		fmt.Fprintln(os.Stderr, "xctide: --simulator-only and --device-only cannot be used together")
+		os.Exit(exitInvalidUsage)
+	}
+	if cfg.destLimit < 0 {
+		fmt.Fprintln(os.Stderr, "xctide: --limit cannot be negative")
 		os.Exit(exitInvalidUsage)
 	}
 	seen := visitedFlags(flagSet)
@@ -167,7 +176,7 @@ func main() {
 				os.Exit(exitRuntimeFailure)
 			}
 		} else {
-			renderDestinationsResult(os.Stdout, result)
+			renderDestinationsResult(os.Stdout, result, cfg)
 		}
 		os.Exit(exitOK)
 	}

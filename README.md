@@ -47,6 +47,7 @@ xctide run --destination "platform=iOS Simulator,id=<UDID>"
 xctide plan --scheme Subsmind -- test
 xctide doctor
 xctide destinations --scheme Subsmind
+xctide destinations --scheme Subsmind --platform "iOS Simulator" --name "iPhone 17" --latest --limit 10
 xctide xcrun simctl list devices available
 xctide xcrun xctrace list templates
 xctide xctest -h
@@ -66,9 +67,14 @@ xctide --json -- test
 - `--configuration` (default: `Debug`)
 - `--destination` (optional)
 - `--platform` (destination filter for `xctide destinations`)
+- `--name` (destination name contains filter for `xctide destinations`)
+- `--os` (destination OS contains filter for `xctide destinations`)
+- `--limit` (max destination rows to return for `xctide destinations`)
+- `--latest` (keep latest OS per destination name for `xctide destinations`)
 - `--simulator-only` / `--device-only` (destination filters for `xctide destinations`)
 - `--progress` (`auto|tui|plain|json|ndjson`; default `auto`)
 - `--result-bundle` (optional)
+- `--details` (expanded plain output sections)
 - `--quiet` (passes `-quiet` to `xcodebuild`)
 - `--verbose` (wrapper diagnostics to stderr)
 - `--plain` (disable TUI, stream raw output)
@@ -113,6 +119,8 @@ Precedence: flags > env > auto-detect/defaults.
 - Pass additional `xcodebuild` args after `--`.
 - When stdout/stderr is not a TTY, `xctide` automatically falls back to plain output.
 - Plain progress mode starts with an `Invocation` block that shows the resolved `xcodebuild` command.
+- Plain progress mode defaults to compact summaries; pass `--details` for expanded `Completed`/`Dependencies`/`Executed` sections.
+- Compact plain summaries include a short preview of slow dependency targets when available.
 - `xctide run` performs build + simulator launch + install + app launch (requires simulator destination with `id=`).
 - Preflight docs for `doctor` and `plan`: `docs/doctor-and-plan.md`.
 - Tool passthrough docs for `xcrun`/`xctest` and `xctrace` usage: `docs/tooling-passthrough.md`.
@@ -135,6 +143,7 @@ Precedence: flags > env > auto-detect/defaults.
 
 In `--progress json`, events are returned in `events[]`, phase order in `phase_timeline`, completion rows in `completed[]`, execution rows in `executed[]`, and summary errors in `top_errors`.
 In `--progress ndjson`, each event is emitted as one JSON object per line in real time (including `completed_item` and `diagnostic_summary`), with `run_finished` emitted last.
+Machine payloads include `schema_version` and per-event `seq` for stable consumer parsing/replay.
 Formal contract: `docs/machine-contract.md`.
 
 When available, plain output includes a `Dependencies` section with slow non-primary build targets (typically SPM/package targets), and JSON includes `dependency_targets[]`.

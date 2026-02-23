@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -138,10 +139,15 @@ _xctide() {
     '--configuration[Build configuration]:configuration:' \
     '--destination[Build destination]:destination:' \
     '--platform[Destination filter for destinations command]:platform:' \
+    '--name[Destination name contains filter for destinations]:name:' \
+    '--os[Destination OS contains filter for destinations]:os:' \
+    '--limit[Max destinations to return]:limit:' \
+    '--latest[Keep latest OS per destination name]' \
     '--simulator-only[Only simulator destinations]' \
     '--device-only[Only physical device destinations]' \
     '--progress[Progress mode]:progress:(auto tui plain json ndjson)' \
     '--result-bundle[Path to write result bundle]:result-bundle:_files' \
+    '--details[Expanded plain output sections]' \
     '--plain[Disable TUI and stream raw output]' \
     '--json[Emit JSON summary]' \
     '--quiet[Pass -quiet to xcodebuild]' \
@@ -178,19 +184,30 @@ func listDestinations(cfg buildConfig) ([]destinationOption, error) {
 		return nil, fmt.Errorf("xcodebuild -showdestinations failed: %w", err)
 	}
 	options := parseShowDestinationsOutput(out)
-	options = filterDestinations(options, cfg.platform, cfg.simulatorOnly, cfg.deviceOnly)
+	options = filterDestinations(options, cfg.platform, cfg.destName, cfg.destOS, cfg.simulatorOnly, cfg.deviceOnly, cfg.destLatest)
+	options = limitDestinations(options, cfg.destLimit)
 	if len(options) == 0 {
 		return nil, errors.New("no destinations found")
 	}
 	return options, nil
 }
 
-func filterDestinations(options []destinationOption, platform string, simulatorOnly bool, deviceOnly bool) []destinationOption {
+func filterDestinations(options []destinationOption, platform string, nameFilter string, osFilter string, simulatorOnly bool, deviceOnly bool, latest bool) []destinationOption {
 	normalizedPlatform := strings.TrimSpace(strings.ToLower(platform))
+	normalizedName := strings.TrimSpace(strings.ToLower(nameFilter))
+	normalizedOS := strings.TrimSpace(strings.ToLower(osFilter))
 	out := make([]destinationOption, 0, len(options))
 	for _, option := range options {
 		lowerPlatform := strings.ToLower(strings.TrimSpace(option.Platform))
 		if normalizedPlatform != "" && lowerPlatform != normalizedPlatform {
+			continue
+		}
+		lowerName := strings.ToLower(strings.TrimSpace(option.Name))
+		if normalizedName != "" && !strings.Contains(lowerName, normalizedName) {
+			continue
+		}
+		lowerOS := strings.ToLower(strings.TrimSpace(option.OS))
+		if normalizedOS != "" && !strings.Contains(lowerOS, normalizedOS) {
 			continue
 		}
 		isSimulator := strings.Contains(lowerPlatform, "simulator")
@@ -202,6 +219,64 @@ func filterDestinations(options []destinationOption, platform string, simulatorO
 		}
 		out = append(out, option)
 	}
+	if latest {
+		out = latestDestinationsByName(out)
+	}
+	return out
+}
+
+func latestDestinationsByName(options []destinationOption) []destinationOption {
+	type keyedOption struct {
+		option destinationOption
+		key    string
+	}
+	byName := make(map[string]keyedOption, len(options))
+	order := make([]string, 0, len(options))
+	for _, option := range options {
+		key := strings.ToLower(strings.TrimSpace(option.Platform + "|" + option.Name))
+		current := keyedOption{option: option, key: key}
+		prev, exists := byName[key]
+		if !exists {
+			byName[key] = current
+			order = append(order, key)
+			continue
+		}
+		if destinationOSSortValue(option.OS) > destinationOSSortValue(prev.option.OS) {
+			byName[key] = current
+		}
+	}
+	out := make([]destinationOption, 0, len(byName))
+	for _, key := range order {
+		out = append(out, byName[key].option)
+	}
+	return out
+}
+
+func destinationOSSortValue(raw string) int {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0
+	}
+	parts := strings.Split(value, ".")
+	sum := 0
+	factor := 1000000
+	for i := 0; i < len(parts) && i < 3; i++ {
+		num, err := strconv.Atoi(parts[i])
+		if err != nil {
+			return 0
+		}
+		sum += num * factor
+		factor /= 100
+	}
+	return sum
+}
+
+func limitDestinations(options []destinationOption, limit int) []destinationOption {
+	if limit <= 0 || len(options) <= limit {
+		return options
+	}
+	out := make([]destinationOption, 0, limit)
+	out = append(out, options[:limit]...)
 	return out
 }
 
@@ -266,7 +341,7 @@ func parseDestinationDictLine(line string) (destinationOption, bool) {
 	return option, option.Spec != ""
 }
 
-func renderDestinationsResult(w io.Writer, result destinationsResult) {
+func renderDestinationsResult(w io.Writer, result destinationsResult, cfg buildConfig) {
 	fmt.Fprintln(w, "• Destinations")
 	if result.Workspace != "" {
 		fmt.Fprintf(w, "  Workspace %s\n", result.Workspace)
@@ -274,8 +349,40 @@ func renderDestinationsResult(w io.Writer, result destinationsResult) {
 		fmt.Fprintf(w, "  Project %s\n", result.Project)
 	}
 	fmt.Fprintf(w, "  Scheme %s\n", result.Scheme)
+	if cfg.platform != "" || cfg.destName != "" || cfg.destOS != "" || cfg.simulatorOnly || cfg.deviceOnly || cfg.destLatest {
+		parts := make([]string, 0, 6)
+		if cfg.platform != "" {
+			parts = append(parts, "platform="+cfg.platform)
+		}
+		if cfg.destName != "" {
+			parts = append(parts, "name~"+cfg.destName)
+		}
+		if cfg.destOS != "" {
+			parts = append(parts, "os~"+cfg.destOS)
+		}
+		if cfg.simulatorOnly {
+			parts = append(parts, "simulator-only")
+		}
+		if cfg.deviceOnly {
+			parts = append(parts, "device-only")
+		}
+		if cfg.destLatest {
+			parts = append(parts, "latest")
+		}
+		fmt.Fprintf(w, "  Filters %s\n", strings.Join(parts, ", "))
+	}
 	fmt.Fprintln(w, "")
-	for _, item := range result.Destinations {
+	items := result.Destinations
+	displayLimit := cfg.destLimit
+	if displayLimit <= 0 {
+		displayLimit = 25
+	}
+	truncated := false
+	if len(items) > displayLimit {
+		items = items[:displayLimit]
+		truncated = true
+	}
+	for _, item := range items {
 		label := strings.TrimSpace(strings.Join([]string{item.Platform, item.Name}, " "))
 		if item.OS != "" {
 			fmt.Fprintf(w, "  - %s (iOS %s)\n", label, item.OS)
@@ -285,6 +392,10 @@ func renderDestinationsResult(w io.Writer, result destinationsResult) {
 		if item.Spec != "" {
 			fmt.Fprintf(w, "    %s\n", item.Spec)
 		}
+	}
+	if truncated {
+		fmt.Fprintln(w, "")
+		fmt.Fprintf(w, "  ... %d more destination(s). Use --limit to control output or --json for full list.\n", len(result.Destinations)-len(items))
 	}
 }
 

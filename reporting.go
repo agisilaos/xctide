@@ -102,48 +102,74 @@ func renderPlainBuildReport(w io.Writer, cfg buildConfig, events []buildEvent, c
 	}
 	fmt.Fprintln(w, "")
 
-	fmt.Fprintln(w, "• Completed")
-	if len(completedRows) > 0 {
-		for _, row := range completedRows {
-			if row.TaskCount > 0 {
-				fmt.Fprintf(w, "  └ Build %s (%d tasks) %s\n", row.Name, row.TaskCount, formatDuration(row.DurationMS))
-			} else {
-				fmt.Fprintf(w, "  └ Build %-24s %s\n", row.Name, formatDuration(row.DurationMS))
+	if cfg.details {
+		fmt.Fprintln(w, "• Completed")
+		if len(completedRows) > 0 {
+			for _, row := range completedRows {
+				if row.TaskCount > 0 {
+					fmt.Fprintf(w, "  └ Build %s (%d tasks) %s\n", row.Name, row.TaskCount, formatDuration(row.DurationMS))
+				} else {
+					fmt.Fprintf(w, "  └ Build %-24s %s\n", row.Name, formatDuration(row.DurationMS))
+				}
 			}
-		}
-	} else {
-		for _, event := range events {
-			if event.Type != eventStepDone || event.StepStatus != "done" {
-				continue
+		} else {
+			for _, event := range events {
+				if event.Type != eventStepDone || event.StepStatus != "done" {
+					continue
+				}
+				fmt.Fprintf(w, "  └ Build %-8s %s\n", event.StepName, formatDuration(event.DurationMS))
 			}
-			fmt.Fprintf(w, "  └ Build %-8s %s\n", event.StepName, formatDuration(event.DurationMS))
-		}
-	}
-	fmt.Fprintln(w, "")
-
-	if len(dependencyRows) > 0 {
-		fmt.Fprintln(w, "• Dependencies")
-		limit := len(dependencyRows)
-		if limit > 12 {
-			limit = 12
-		}
-		for _, row := range dependencyRows[:limit] {
-			label := row.name
-			if row.project != "" {
-				label = fmt.Sprintf("%s (%s)", row.name, row.project)
-			}
-			fmt.Fprintf(w, "  └ Build %-24s %s\n", label, formatDurationDur(row.duration))
-		}
-		if len(dependencyRows) > limit {
-			fmt.Fprintf(w, "  ... and %d more\n", len(dependencyRows)-limit)
 		}
 		fmt.Fprintln(w, "")
-	}
 
-	if len(executedRows) > 0 {
-		fmt.Fprintln(w, "• Executed")
-		for _, row := range executedRows {
-			fmt.Fprintf(w, "  └ %-24s %s\n", row.name, formatDurationDur(row.duration))
+		if len(dependencyRows) > 0 {
+			fmt.Fprintln(w, "• Dependencies")
+			limit := len(dependencyRows)
+			if limit > 12 {
+				limit = 12
+			}
+			for _, row := range dependencyRows[:limit] {
+				label := row.name
+				if row.project != "" {
+					label = fmt.Sprintf("%s (%s)", row.name, row.project)
+				}
+				fmt.Fprintf(w, "  └ Build %-24s %s\n", label, formatDurationDur(row.duration))
+			}
+			if len(dependencyRows) > limit {
+				fmt.Fprintf(w, "  ... and %d more\n", len(dependencyRows)-limit)
+			}
+			fmt.Fprintln(w, "")
+		}
+
+		if len(executedRows) > 0 {
+			fmt.Fprintln(w, "• Executed")
+			for _, row := range executedRows {
+				fmt.Fprintf(w, "  └ %-24s %s\n", row.name, formatDurationDur(row.duration))
+			}
+			fmt.Fprintln(w, "")
+		}
+	} else {
+		fmt.Fprintln(w, "• Summary")
+		fmt.Fprintf(w, "  completed items:%d\n", len(completedRows))
+		if len(dependencyRows) > 0 {
+			previewLimit := len(dependencyRows)
+			if previewLimit > 3 {
+				previewLimit = 3
+			}
+			fmt.Fprintf(w, "  slow dependencies:%d\n", len(dependencyRows))
+			for _, row := range dependencyRows[:previewLimit] {
+				label := row.name
+				if row.project != "" {
+					label = fmt.Sprintf("%s (%s)", row.name, row.project)
+				}
+				fmt.Fprintf(w, "  - %s %s\n", label, formatDurationDur(row.duration))
+			}
+			if len(dependencyRows) > previewLimit {
+				fmt.Fprintf(w, "  ... and %d more (use --details to expand)\n", len(dependencyRows)-previewLimit)
+			}
+		}
+		if len(executedRows) > 0 {
+			fmt.Fprintf(w, "  executed actions:%d (use --details to expand)\n", len(executedRows))
 		}
 		fmt.Fprintln(w, "")
 	}
@@ -163,9 +189,37 @@ func renderPlainBuildReport(w io.Writer, cfg buildConfig, events []buildEvent, c
 			fmt.Fprintf(w, "  - %s\n", message)
 		}
 	}
-	if hint := destinationErrorHint(cfg, topErrors); hint != "" {
+	if hint := buildFailureHint(cfg, topErrors); hint != "" {
 		fmt.Fprintf(w, "  hint: %s\n", hint)
 	}
+}
+
+func buildFailureHint(cfg buildConfig, topErrors []string) string {
+	for _, item := range topErrors {
+		lower := strings.ToLower(item)
+		if strings.Contains(item, "Unable to find a destination matching the provided destination specifier") {
+			args := []string{"xctide", "destinations", "--scheme", cfg.scheme}
+			if cfg.workspacePath != "" {
+				args = append(args, "--workspace", cfg.workspacePath)
+			} else if cfg.projectPath != "" {
+				args = append(args, "--project", cfg.projectPath)
+			}
+			return strings.Join(args, " ")
+		}
+		if strings.Contains(lower, ".xcodeproj") && strings.Contains(lower, "does not exist") {
+			return "run from your project root or pass a valid --project/--workspace path"
+		}
+		if strings.Contains(lower, "does not contain a scheme named") || (strings.Contains(lower, "scheme") && strings.Contains(lower, "not found")) {
+			return fmt.Sprintf("verify schemes with `xcodebuild -list`, then run `xctide plan --scheme %s`", cfg.scheme)
+		}
+		if strings.Contains(lower, "codesign") || strings.Contains(lower, "requires a development team") {
+			return "for simulator runs, use an iOS Simulator destination; for devices, verify signing/team settings in Xcode"
+		}
+		if strings.Contains(lower, ": error:") {
+			return "fix the first compiler error above, then rerun (use `--details` or `--progress ndjson` for deeper diagnostics)"
+		}
+	}
+	return ""
 }
 
 func destinationErrorHint(cfg buildConfig, topErrors []string) string {

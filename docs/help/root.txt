@@ -19,10 +19,15 @@ FLAGS:
       --configuration string
       --destination string
       --platform string Destination filter for `destinations`
+      --name string     Destination name contains filter for `destinations`
+      --os string       Destination OS contains filter for `destinations`
+      --limit int       Max destinations to return (`destinations`)
+      --latest          Keep latest OS per destination name (`destinations`)
       --simulator-only  Filter to simulator destinations (`destinations`)
       --device-only     Filter to physical device destinations (`destinations`)
       --progress string Progress mode: auto|tui|plain|json|ndjson
       --result-bundle string
+      --details         Expanded plain output sections
       --plain           Disable TUI and stream raw output
       --json            Emit JSON summary to stdout
       --quiet           Pass -quiet to xcodebuild

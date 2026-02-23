@@ -108,5 +108,20 @@ if [[ -n "$(gofmt -l .)" ]]; then
   die "gofmt reported formatting drift"
 fi
 
+echo "[release-check] verifying --version output wiring"
+build_pkg="./cmd/xctide"
+if [[ ! -d "$build_pkg" ]]; then
+  build_pkg="."
+fi
+tmp_dir="$(mktemp -d)"
+trap 'rm -rf "$tmp_dir"' EXIT
+bin_path="$tmp_dir/xctide-release-check"
+go build -ldflags "-X main.version=${version}" -o "$bin_path" "$build_pkg"
+reported_version="$("$bin_path" --version | tr -d '\r\n')"
+expected_version="${version#v}"
+if [[ "$reported_version" != "$expected_version" ]]; then
+  die "--version mismatch: got '$reported_version', want '$expected_version'"
+fi
+
 echo "[release-check] ok"
 echo "  version: $version"

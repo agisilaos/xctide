@@ -32,6 +32,8 @@ All events include:
 
 - `type` (string)
 - `at` (RFC3339 timestamp)
+- `schema_version` (`"v1"`)
+- `seq` (1-based increasing integer within a run)
 
 Additional required fields:
 
@@ -57,6 +59,7 @@ Notes:
 ## Ordering Guarantees (`--progress ndjson`)
 
 - Events are emitted in process order as observed during execution.
+- `seq` is strictly increasing and can be used to verify/replay event order.
 - `run_finished` is emitted exactly once and is always the final NDJSON event.
 - `diagnostic_summary` is emitted before `run_finished`.
 
@@ -64,6 +67,7 @@ Notes:
 
 Top-level summary includes:
 
+- `schema_version` (`"v1"`)
 - `success`, `exit_code`, `duration_ms`
 - `command`, `scheme`, `configuration`
 - `stats`

@@ -38,6 +38,9 @@ func TestCLIJSONContractSuccessIntegration(t *testing.T) {
 	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
 		t.Fatalf("invalid json output: %v\n%s", err, stdout)
 	}
+	if schema, _ := payload["schema_version"].(string); schema != machineSchemaVersion {
+		t.Fatalf("schema_version = %#v, want %q", payload["schema_version"], machineSchemaVersion)
+	}
 	if success, _ := payload["success"].(bool); !success {
 		t.Fatalf("success = %#v, want true", payload["success"])
 	}
@@ -54,12 +57,24 @@ func TestCLIJSONContractSuccessIntegration(t *testing.T) {
 		t.Fatalf("events = %#v, want non-empty", payload["events"])
 	}
 	runFinishedCount := 0
+	lastSeq := 0
 	for _, item := range events {
 		event, ok := item.(map[string]any)
 		if !ok {
 			t.Fatalf("event not object: %#v", item)
 		}
 		typ, _ := event["type"].(string)
+		seq, ok := event["seq"].(float64)
+		if !ok {
+			t.Fatalf("event missing seq: %#v", event)
+		}
+		if int(seq) <= lastSeq {
+			t.Fatalf("seq not increasing: prev=%d current=%d event=%#v", lastSeq, int(seq), event)
+		}
+		lastSeq = int(seq)
+		if schema, _ := event["schema_version"].(string); schema != machineSchemaVersion {
+			t.Fatalf("event schema_version = %#v, want %q", event["schema_version"], machineSchemaVersion)
+		}
 		if typ == string(eventRunFinished) {
 			runFinishedCount++
 			if _, ok := event["success"]; !ok {

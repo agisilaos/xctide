@@ -11,6 +11,7 @@ import (
 )
 
 type jsonBuildResult struct {
+	SchemaVersion     string             `json:"schema_version"`
 	Success           bool               `json:"success"`
 	ExitCode          int                `json:"exit_code"`
 	DurationMS        int64              `json:"duration_ms"`
@@ -44,6 +45,8 @@ type jsonTargetTiming struct {
 type ndjsonCompletedEvent struct {
 	Type       eventType   `json:"type"`
 	At         time.Time   `json:"at"`
+	Schema     string      `json:"schema_version"`
+	Seq        int         `json:"seq"`
 	Message    string      `json:"message,omitempty"`
 	TaskCount  int         `json:"task_count,omitempty"`
 	DurationMS int64       `json:"duration_ms"`
@@ -119,7 +122,9 @@ func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
 	}
 
 	phaseTimeline := phaseTimelineFromEvents(tracker.events)
+	machineEvents := annotateMachineEvents(tracker.events)
 	result := jsonBuildResult{
+		SchemaVersion: machineSchemaVersion,
 		Success:       waitErr == nil,
 		ExitCode:      classifyBuildErr(waitErr),
 		DurationMS:    time.Since(start).Milliseconds(),
@@ -132,7 +137,7 @@ func runJSONBuild(cfg buildConfig) (jsonBuildResult, error) {
 		Stats:         tracker.stats,
 		PhaseTimeline: phaseTimeline,
 		Completed:     completedFromTimingRows(timingRows),
-		Events:        append([]buildEvent(nil), tracker.events...),
+		Events:        machineEvents,
 		TopErrors:     topErrorsFromEvents(tracker.events, 5),
 	}
 	dependencyRows := dependencyTargetRows(cfg, targetTracker.rows)
@@ -168,6 +173,8 @@ func encodeNDJSONEvent(encoder *json.Encoder, event buildEvent) error {
 	payload := ndjsonCompletedEvent{
 		Type:       event.Type,
 		At:         event.At,
+		Schema:     event.Schema,
+		Seq:        event.Seq,
 		Message:    event.Message,
 		TaskCount:  event.TaskCount,
 		DurationMS: event.DurationMS,
@@ -182,6 +189,17 @@ func encodeNDJSONEvent(encoder *json.Encoder, event buildEvent) error {
 		Stats:      event.Stats,
 	}
 	return encoder.Encode(payload)
+}
+
+func annotateMachineEvents(events []buildEvent) []buildEvent {
+	out := make([]buildEvent, 0, len(events))
+	for i, event := range events {
+		copyEvent := event
+		copyEvent.Schema = machineSchemaVersion
+		copyEvent.Seq = i + 1
+		out = append(out, copyEvent)
+	}
+	return out
 }
 
 func runNDJSONBuild(cfg buildConfig) (int, error) {
@@ -212,11 +230,15 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 
 	encoder := json.NewEncoder(os.Stdout)
 	tracker := newEventTracker()
+	seq := 0
 	timingRows := make([]completedItem, 0)
 	inTimingSummary := false
 	for line := range lines {
 		events := tracker.processLine(line, time.Now())
 		for _, event := range events {
+			seq++
+			event.Schema = machineSchemaVersion
+			event.Seq = seq
 			if err := encodeNDJSONEvent(encoder, event); err != nil {
 				return exitRuntimeFailure, err
 			}
@@ -243,6 +265,9 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 	waitErr := cmd.Wait()
 	finishEvents, provisionalRunFinished := splitRunFinishedEvent(tracker.finish(waitErr, time.Now()))
 	for _, event := range finishEvents {
+		seq++
+		event.Schema = machineSchemaVersion
+		event.Seq = seq
 		if err := encodeNDJSONEvent(encoder, event); err != nil {
 			return exitRuntimeFailure, err
 		}
@@ -255,7 +280,10 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 			TaskCount:  row.TaskCount,
 			DurationMS: row.DurationMS,
 		}
-		if err := encoder.Encode(event); err != nil {
+		seq++
+		event.Schema = machineSchemaVersion
+		event.Seq = seq
+		if err := encodeNDJSONEvent(encoder, event); err != nil {
 			return exitRuntimeFailure, err
 		}
 	}
@@ -265,6 +293,9 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 		Stats:     &tracker.stats,
 		TopErrors: topErrorsFromEvents(tracker.events, 5),
 	}
+	seq++
+	summary.Schema = machineSchemaVersion
+	summary.Seq = seq
 	if err := encodeNDJSONEvent(encoder, summary); err != nil {
 		return exitRuntimeFailure, err
 	}
@@ -278,14 +309,20 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 				Message:    row.name,
 				DurationMS: row.duration.Milliseconds(),
 			}
+			seq++
+			event.Schema = machineSchemaVersion
+			event.Seq = seq
 			if err := encodeNDJSONEvent(encoder, event); err != nil {
 				return exitRuntimeFailure, err
 			}
 		}
 		if runErr != nil {
+			seq++
 			if err := encodeNDJSONEvent(encoder, buildEvent{
 				Type:    eventActionFail,
 				At:      time.Now(),
+				Schema:  machineSchemaVersion,
+				Seq:     seq,
 				Level:   "error",
 				Message: runErr.Error(),
 			}); err != nil {
@@ -300,6 +337,9 @@ func runNDJSONBuild(cfg buildConfig) (int, error) {
 		final.At = provisionalRunFinished.At
 		final.DurationMS = provisionalRunFinished.DurationMS
 	}
+	seq++
+	final.Schema = machineSchemaVersion
+	final.Seq = seq
 	if err := encodeNDJSONEvent(encoder, final); err != nil {
 		return exitRuntimeFailure, err
 	}

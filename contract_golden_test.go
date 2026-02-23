@@ -136,6 +136,7 @@ func TestNDJSONContractRunFinishedIsLastAndUnique(t *testing.T) {
 		DurationMS: 400,
 	})
 	stream = append(stream, buildRunFinishedEvent(start, start.Add(3*time.Second), tracker.stats, nil, topErrors))
+	stream = annotateMachineEvents(stream)
 
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)
@@ -181,6 +182,8 @@ func validateMachineContractEvent(t *testing.T, index int, payload map[string]an
 
 	requireField("type")
 	requireField("at")
+	requireField("schema_version")
+	requireField("seq")
 	typ, _ := payload["type"].(string)
 	switch typ {
 	case string(eventStepStarted):
@@ -340,6 +343,7 @@ func sampleContractJSONResult() jsonBuildResult {
 	events := sampleContractEvents()
 	stats := buildStats{warnings: 1, errors: 0, tests: 2, failures: 0}
 	return jsonBuildResult{
+		SchemaVersion: machineSchemaVersion,
 		Success:       true,
 		ExitCode:      exitOK,
 		DurationMS:    3000,
@@ -364,7 +368,7 @@ func sampleContractEvents() []buildEvent {
 	t0 := time.Date(2026, 2, 21, 10, 0, 0, 0, time.UTC)
 	stats := buildStats{warnings: 1, errors: 0, tests: 2, failures: 0}
 	statsCopy := stats
-	return []buildEvent{
+	return annotateMachineEvents([]buildEvent{
 		{Type: eventRunStarted, At: t0},
 		{Type: eventStepStarted, At: t0, StepName: "Prepare", StepIndex: 1, StepTotal: 5},
 		{Type: eventStepDone, At: t0.Add(500 * time.Millisecond), StepName: "Prepare", StepIndex: 1, StepTotal: 5, StepStatus: "done", DurationMS: 500},
@@ -374,7 +378,7 @@ func sampleContractEvents() []buildEvent {
 		{Type: eventDiagSummary, At: t0.Add(2500 * time.Millisecond), Stats: &statsCopy},
 		{Type: eventActionDone, At: t0.Add(2800 * time.Millisecond), Message: "Launch simulator", DurationMS: 400},
 		buildRunFinishedEvent(t0, t0.Add(3*time.Second), stats, nil, nil),
-	}
+	})
 }
 
 func assertGoldenBytes(t *testing.T, path string, got []byte) {

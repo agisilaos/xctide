@@ -6,6 +6,7 @@ import (
 )
 
 const version = "0.1.0"
+const machineSchemaVersion = "v1"
 
 const (
 	exitOK             = 0
@@ -25,11 +26,16 @@ type buildConfig struct {
 	platform      string
 	simulatorOnly bool
 	deviceOnly    bool
+	destName      string
+	destOS        string
+	destLimit     int
+	destLatest    bool
 	progress      string
 	extraArgs     []string
 	resultBundle  string
 	useQuiet      bool
 	verbose       bool
+	details       bool
 	plain         bool
 	jsonOutput    bool
 	noInput       bool
@@ -115,6 +121,8 @@ const (
 type buildEvent struct {
 	Type       eventType   `json:"type"`
 	At         time.Time   `json:"at"`
+	Schema     string      `json:"schema_version,omitempty"`
+	Seq        int         `json:"seq,omitempty"`
 	StepName   string      `json:"step_name,omitempty"`
 	StepIndex  int         `json:"step_index,omitempty"`
 	StepTotal  int         `json:"step_total,omitempty"`

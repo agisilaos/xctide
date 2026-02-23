@@ -117,7 +117,7 @@ func main() {
 	}
 
 	if showVersion {
-		fmt.Println(version)
+		fmt.Println(printableVersion())
 		return
 	}
 

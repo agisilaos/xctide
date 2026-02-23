@@ -5,7 +5,8 @@ import (
 	"time"
 )
 
-const version = "0.1.0"
+var version = "dev"
+
 const machineSchemaVersion = "v1"
 
 const (

@@ -30,6 +30,9 @@ This document describes the high-level structure of the `xctide` codebase after 
 - `event_tracker.go`
   - Build event stream state machine (`run_started`, `step_started`, `step_finished`, diagnostics, `run_finished`).
   - Step transition/duration tracking and summary stats accumulation.
+- `machine_events.go`
+  - Machine-output annotation utilities for `schema_version` and monotonic `seq`.
+  - Shared sequencing logic used by both JSON and NDJSON outputs.
 - `target_timing.go`
   - Target timing extraction from build logs.
   - Dependency target filtering/sorting for slow non-primary targets.
